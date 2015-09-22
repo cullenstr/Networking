@@ -54,15 +54,14 @@ int main(int argc, char * argv[]) {
     }
 
     /* make socket */
-	int client_socket = socket(AF_INET, SOCK_STREAM,0);
+	int client_socket = socket(AF_INET, SOCK_STREAM, 0);
     /* get host IP address  */
-    /* Hint: use gethostbyname() */
-	struct addrinfo hints;
-	struct addrinfo *return_addresses;
+	struct addrinfo hints; //hints used to specify type of socket type for getaddrinfo
+	struct addrinfo *return_addresses; //where getaddrinfo will return the server address
 	memset(&hints, 0, sizeof hints);
 	hints.ai_family = AF_INET;
 	hints.ai_socktype = SOCK_STREAM;
-	char * port_as_string;
+	char * port_as_string; //need port number as a string for this function
 	sprintf( port_as_string, "%d", server_port);
 	return_val = getaddrinfo(server_name, port_as_string, &hints, &return_addresses);
 	if (return_val != 0) {
@@ -70,26 +69,23 @@ int main(int argc, char * argv[]) {
 		exit(-1);
 	}
     /* set address */
-	struct sockaddr *sa;
-	sa = return_addresses->ai_addr;
+	struct sockaddr *sa; //server address
+	sa = return_addresses->ai_addr;  //the first address in the list should be the one we want
     /* connect to the server socket */
-	return_val = connect(client_socket, sa, sizeof(sa));
+	return_val = connect(client_socket, sa, sizeof(sa));  //attempt to connect to server address
 	if (return_val != 0) {
 		perror("Error on connection :");
 		exit(-1);
 	}
     /* send request message */
-    sprintf(req, "GET %s HTTP/1.0\r\n\r\n", server_path);
+    sprintf(req, "GET %s HTTP/1.0\r\n\r\n", server_path); 
 	send(client_socket, req, strlen(req) + 1, 0);
     /* wait till socket can be read. */
     /* Hint: use select(), and ignore timeout for now. */
 	fd_set server_fd_set;
-	fd_set temp_fd_set;
-	FD_ZERO(&server_fd_set);
-	FD_ZERO(&temp_fd_set);
-	FD_SET(client_socket, &server_fd_set);
-	temp_fd_set = server_fd_set;
-	return_val = select( client_socket+1, &temp_fd_set, NULL, NULL, NULL);
+	FD_ZERO(&server_fd_set); //make sure sets start empty
+	FD_SET(client_socket, &server_fd_set); //set server server set to contain our waiting socket
+	return_val = select( client_socket+1, &server_fd_set, NULL, NULL, NULL); //return 
 	if( return_val == -1) {
 		perror("Error waiting for server");
 		exit(-1);
@@ -111,7 +107,7 @@ int main(int argc, char * argv[]) {
 	string return_code;
 	http_content.assign(buff_in); //proper way to assign char* to string in c++?
     //Skip "HTTP/1.0"
-    //remove the '\0' //not sure what he means by this?? check in telnet
+    //remove the '\0' //not necessary when using c++ strings?
 	return_code = http_content.substr(9, 3); //extract return code
 	string all_ok = "200";
     // Normal reply has return code 200

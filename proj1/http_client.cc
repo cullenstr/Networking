@@ -16,6 +16,10 @@ using namespace std;
 
 #define BUFSIZE 1024
 
+int gdb( int zero ){
+	return 0;
+}
+
 int main(int argc, char * argv[]) {
 
     char * server_name = NULL;
@@ -39,6 +43,8 @@ int main(int argc, char * argv[]) {
     req = (char *)malloc(strlen("GET  HTTP/1.0\r\n\r\n") 
 			 + strlen(server_path) + 1);  
 
+	gdb( 0 );
+	
     /* initialize */
     if (toupper(*(argv[1])) == 'K') { 
 	/* UNCOMMENT FOR MINET 
@@ -53,6 +59,7 @@ int main(int argc, char * argv[]) {
 	exit(-1);
     }
 
+	gdb(0);
     /* make socket */
 	int client_socket = socket(AF_INET, SOCK_STREAM, 0);
     /* get host IP address  */
@@ -61,18 +68,19 @@ int main(int argc, char * argv[]) {
 	memset(&hints, 0, sizeof hints);
 	hints.ai_family = AF_INET;
 	hints.ai_socktype = SOCK_STREAM;
-	char * port_as_string; //need port number as a string for this function
+	char port_as_string[7]; //need port number as a string for this function
 	sprintf( port_as_string, "%d", server_port);
 	return_val = getaddrinfo(server_name, port_as_string, &hints, &return_addresses);
 	if (return_val != 0) {
 		fprintf(stderr, "getaddrinfo() failed: %s\n", gai_strerror(return_val));
 		exit(-1);
 	}
+	gdb(0);
     /* set address */
-	struct sockaddr *sa; //server address
-	sa = return_addresses->ai_addr;  //the first address in the list should be the one we want
+	//struct sockaddr *sa; //server address
+	//sa = return_addresses->ai_addr;  //the first address in the list should be the one we want
     /* connect to the server socket */
-	return_val = connect(client_socket, sa, sizeof(sa));  //attempt to connect to server address
+	return_val = connect(client_socket, return_addresses->ai_addr, return_addresses->ai_addrlen);  //attempt to connect to server address
 	if (return_val != 0) {
 		perror("Error on connection :");
 		exit(-1);
@@ -132,7 +140,7 @@ int main(int argc, char * argv[]) {
 			if (return_val == 0) {
 				more_to_read = false;
 			}
-			fprintf(stdout, buff_in);
+			fprintf(stdout, "%s", buff_in);
 		}	
 	}
     /*close socket and deinitialize */

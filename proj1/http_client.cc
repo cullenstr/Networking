@@ -123,6 +123,13 @@ int main(int argc, char * argv[]) {
 	else {
 		/* print first part of response: header, error code, etc. */
 		substring_marker = http_content.find("<!DOCTYPE html>"); 
+		while(substring_marker==-1) {
+			fprintf(stdout, "%s", buff_in);
+			memset(buff_in, 0, sizeof(buff_in));
+			return_val = recv(client_socket, buff_in, sizeof(buff_in), 0);
+			http_content.assign(buff_in);
+			substring_marker = http_content.find("!DOCTYPE html>");
+		}
 		fprintf(stdout, "%s", (http_content.substr(0, substring_marker)).c_str());
 	}
     /* second read loop -- print out the rest of the response: real web content */
@@ -153,3 +160,4 @@ int main(int argc, char * argv[]) {
 	return -1;
     }
 }
+

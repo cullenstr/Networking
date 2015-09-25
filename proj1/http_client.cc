@@ -42,8 +42,6 @@ int main(int argc, char * argv[]) {
 
     req = (char *)malloc(strlen("GET  HTTP/1.0\r\n\r\n") 
 			 + strlen(server_path) + 1);  
-
-	gdb( 0 );
 	
     /* initialize */
     if (toupper(*(argv[1])) == 'K') { 
@@ -59,7 +57,6 @@ int main(int argc, char * argv[]) {
 	exit(-1);
     }
 
-	gdb(0);
     /* make socket */
 	int client_socket = socket(AF_INET, SOCK_STREAM, 0);
     /* get host IP address  */
@@ -75,10 +72,8 @@ int main(int argc, char * argv[]) {
 		fprintf(stderr, "getaddrinfo() failed: %s\n", gai_strerror(return_val));
 		exit(-1);
 	}
-	gdb(0);
     /* set address */
 	//struct sockaddr *sa; //server address
-	//sa = return_addresses->ai_addr;  //the first address in the list should be the one we want
     /* connect to the server socket */
 	return_val = connect(client_socket, return_addresses->ai_addr, return_addresses->ai_addrlen);  //attempt to connect to server address
 	if (return_val != 0) {
@@ -118,31 +113,37 @@ int main(int argc, char * argv[]) {
     //remove the '\0' //not necessary when using c++ strings?
 	return_code = http_content.substr(9, 3); //extract return code
 	string all_ok = "200";
+	ok = true;
     // Normal reply has return code 200
+	int substring_marker;
 	if (return_code.compare(all_ok) != 0) {
 		ok = false;
+		fprintf( stderr, "%s", http_content.c_str());
 	}
-    /* print first part of response: header, error code, etc. */
-	int substring_marker;
-	substring_marker = http_content.find("<http>"); //might need to be inside non-error loop?
-	fprintf(stdout, "%s", (http_content.substr(0, substring_marker)).c_str());
-	//cout << http_content.substr(0, substring_marker) << endl; would need to include iostream
+	else {
+		/* print first part of response: header, error code, etc. */
+		substring_marker = http_content.find("<!DOCTYPE html>"); 
+		fprintf(stdout, "%s", (http_content.substr(0, substring_marker)).c_str());
+	}
     /* second read loop -- print out the rest of the response: real web content */
-	if (ok) { //if there is html to read
+	if (ok)
 		fprintf(stdout, "%s", (http_content.substr(substring_marker)).c_str());
-		while (more_to_read != false) {
-			memset(buff_in, 0, sizeof(buff_in));
-			return_val = recv(client_socket, buff_in, sizeof(buff_in), 0); 
-			if (return_val < 0) {
-				perror("Error reading from socket");
-				exit(-1);
-			}
-			if (return_val == 0) {
-				more_to_read = false;
-			}
+	while (more_to_read != false) {
+		memset(buff_in, 0, sizeof(buff_in));
+		//printf("there is more to read");
+		return_val = recv(client_socket, buff_in, sizeof(buff_in), 0); 
+		if (return_val < 0) {
+			perror("Error reading from socket");
+			exit(-1);
+		}
+		if (return_val == 0) {
+			more_to_read = false;
+		}
+		if (ok)
 			fprintf(stdout, "%s", buff_in);
-		}	
-	}
+		else
+			fprintf(stderr, "%s", buff_in);
+	}	
     /*close socket and deinitialize */
 	close(client_socket);
 	freeaddrinfo(return_addresses);

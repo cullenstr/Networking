@@ -122,18 +122,12 @@ int main(int argc, char * argv[]) {
 	}
 	else {
 		/* print first part of response: header, error code, etc. */
-		substring_marker = http_content.find("<!DOCTYPE html>"); 
-		while(substring_marker==-1) {
-			fprintf(stdout, "%s", buff_in);
-			memset(buff_in, 0, sizeof(buff_in));
-			return_val = recv(client_socket, buff_in, sizeof(buff_in), 0);
-			http_content.assign(buff_in);
-			substring_marker = http_content.find("!DOCTYPE html>");
-		}
+		substring_marker = http_content.find("Content-length:");
+		substring_marker = http_content.find("\r\n\r\n", substring_marker);
 		fprintf(stdout, "%s", (http_content.substr(0, substring_marker)).c_str());
 	}
     /* second read loop -- print out the rest of the response: real web content */
-	if (ok)
+    if(ok && substring_marker!=-2)
 		fprintf(stdout, "%s", (http_content.substr(substring_marker)).c_str());
 	while (more_to_read != false) {
 		memset(buff_in, 0, sizeof(buff_in));
@@ -150,7 +144,7 @@ int main(int argc, char * argv[]) {
 			fprintf(stdout, "%s", buff_in);
 		else
 			fprintf(stderr, "%s", buff_in);
-	}	
+	}
     /*close socket and deinitialize */
 	close(client_socket);
 	freeaddrinfo(return_addresses);

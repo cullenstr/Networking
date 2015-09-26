@@ -90,14 +90,12 @@ int main(int argc, char * argv[])
 	//initialize list of connections
 	fd_set connection_list; //list of non-minet sockets, currently 0
 	FD_ZERO(&connection_list);
-	FD_SET(accept_sock, &_connection_list);
+	FD_SET(accept_sock, &connection_list);
 
-	
 	/* create read list */
 	fd_set read_list;
 	FD_ZERO(&read_list);
 
-		
     while (1) 
 	{
 		/* create read list */
@@ -119,8 +117,6 @@ int main(int argc, char * argv[])
 				/* for the accept socket, add accepted connection to connections */
 				if(i == accept_sock) 
 				{
-					int size=sizeof(struct sockaddr_in); 
-					minet_accept(accept_sock, &sa_connect))
 					if ((sock_a = minet_accept(i, &sa)) <0) 
 					{
 						minet_perror("Accept failed.\n"); exit (-1);
@@ -212,7 +208,7 @@ int handle_connection(int connect_sock) {
     } 
 	else {
 	// send error response
-        n=minet_write(connect_sock,notok_response,strlen(notok_response));
+        n=minet_write(connect_sock,(char*)notok_response,strlen(notok_response));
     }
     
     /* close socket and free space */

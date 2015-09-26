@@ -1,0 +1,20 @@
+README - CS 1652 - Project 1
+
+Group members
+Lauren Thomson, let41, let41@pitt.edu
+Cullen Strouse, cls161, cls161@pitt.edu
+
+Included files
+http_client.c - compilable but untested version of http_client using minet functions 
+http_server1.c - compilable but untested version of http_server1 using minet functions 
+http_server2.c - compilable but untested version of http_server1 using minet functions 
+http_server3.c - including so that makefile will function, we did not complete the extra credit 
+(do we want to include regular networking versions of our working programs?)
+http_client_k.c - tested and working version of the http_client that runs without minet, utilizing standard networking functions
+http_server1_k.c - tested and working version of the http_server1 that runs without minet, utilizing standard networking functions
+http_server2_k.c -t ested and working version of the http_server2 that runs without minet, utilizing standard networking functions
+
+Notes on coding choices
+We assumed from the project specifications that all the programs were meant to be written using minet compatible functions for the networking  operations.  We have not, of time of this writing, been able to test these minet style programs, and so are including the standard networking versions for reference.  
+
+For the http_client, we delimited the end of the header section by the line "Content-length: %d", but that does not work for all external websites.  For sites that do not include content length as a header field we print all of the output at once to stderr or stdout (depending on the return code).

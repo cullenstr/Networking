@@ -47,7 +47,7 @@ int main(int argc, char * argv[]) {
     } else if (toupper(*(argv[1])) == 'U') { 
 	 minet_init(MINET_USER);
     } 
-    } else {
+    else {
 	fprintf(stderr, "First argument must be k or u\n");
 	exit(-1);
     }
@@ -57,10 +57,10 @@ int main(int argc, char * argv[]) {
     /* get host IP address  */
 	struct addrinfo hints; //hints used to specify type of socket type for getaddrinfo
 	struct addrinfo *return_addresses; //where getaddrinfo will return the server address
-	memset(&hints, 0, sizeof hints);
+	memset(&hints, 0, sizeof(hints));
 	hints.ai_family = AF_INET;
 	hints.ai_socktype = SOCK_STREAM;
-	char port_as_string[7]; //need port number as a string for this function
+	char port_as_string[7]; //need port number as a string for getaddrinfo
 	sprintf( port_as_string, "%d", server_port);
 	return_val = getaddrinfo(server_name, port_as_string, &hints, &return_addresses);
 	if (return_val != 0) {
@@ -68,7 +68,6 @@ int main(int argc, char * argv[]) {
 		exit(-1);
 	}
     /* set address */
-	//struct sockaddr *sa; //server address
     /* connect to the server socket */
 	return_val = minet_connect(client_socket, (sockaddr_in *)return_addresses->ai_addr);  //may need to cast address to sockaddr_in
 	if (return_val != 0) {

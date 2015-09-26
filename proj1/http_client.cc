@@ -1,6 +1,4 @@
-/* UNCOMMENT FOR MINET 
- * #include "minet_socket.h"
- */
+#include "minet_socket.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -44,21 +42,18 @@ int main(int argc, char * argv[]) {
 			 + strlen(server_path) + 1);  
 	
     /* initialize */
-    if (toupper(*(argv[1])) == 'K') { 
-	/* UNCOMMENT FOR MINET 
-	 * minet_init(MINET_KERNEL);
-         */
+	if (toupper(*(argv[1])) == 'K') { 
+	 minet_init(MINET_KERNEL);
     } else if (toupper(*(argv[1])) == 'U') { 
-	/* UNCOMMENT FOR MINET 
-	 * minet_init(MINET_USER);
-	 */
+	 minet_init(MINET_USER);
+    } 
     } else {
 	fprintf(stderr, "First argument must be k or u\n");
 	exit(-1);
     }
 
     /* make socket */
-	int client_socket = socket(AF_INET, SOCK_STREAM, 0);
+	int client_socket = minet_socket(SOCK_STREAM);
     /* get host IP address  */
 	struct addrinfo hints; //hints used to specify type of socket type for getaddrinfo
 	struct addrinfo *return_addresses; //where getaddrinfo will return the server address
@@ -75,28 +70,27 @@ int main(int argc, char * argv[]) {
     /* set address */
 	//struct sockaddr *sa; //server address
     /* connect to the server socket */
-	return_val = connect(client_socket, return_addresses->ai_addr, return_addresses->ai_addrlen);  //attempt to connect to server address
+	return_val = minet_connect(client_socket, (sockaddr_in *)return_addresses->ai_addr);  //may need to cast address to sockaddr_in
 	if (return_val != 0) {
-		perror("Error on connection :");
+		minet_perror("Error on connection :");
 		exit(-1);
 	}
     /* send request message */
     sprintf(req, "GET %s HTTP/1.0\r\n\r\n", server_path); 
-	send(client_socket, req, strlen(req) + 1, 0);
+	minet_write(client_socket, req, strlen(req) + 1);
     /* wait till socket can be read. */
     /* Hint: use select(), and ignore timeout for now. */
 	fd_set server_fd_set;
-	FD_ZERO(&server_fd_set); //make sure sets start empty
+	FD_ZERO(&server_fd_set); //make sure set starts empty
 	FD_SET(client_socket, &server_fd_set); //set server server set to contain our waiting socket
-	return_val = select( client_socket+1, &server_fd_set, NULL, NULL, NULL); //return 
+	return_val = minet_select( client_socket+1, &server_fd_set, NULL, NULL, NULL);
 	if( return_val == -1) {
-		perror("Error waiting for server");
+		minet_perror("Error waiting for server");
 		exit(-1);
 	}
     /* first read loop -- read headers */
 	memset(buff_in, 0, sizeof(buff_in));
-	return_val = recv(client_socket, buff_in, sizeof(buff_in), 0); //if return_val is 0, we've got all the data
-	//but we'll assume all the headers fit in the first buffer
+	return_val = minet_read(client_socket, buff_in, sizeof(buff_in)); //if return_val is 0, we've got all the data
 	if (return_val < 0) {
 		perror("Error reading from socket");
 		exit(-1);
@@ -110,7 +104,7 @@ int main(int argc, char * argv[]) {
 	string return_code;
 	http_content.assign(buff_in); //proper way to assign char* to string in c++?
     //Skip "HTTP/1.0"
-    //remove the '\0' //not necessary when using c++ strings?
+    //remove the '\0' //not necessary when using c++ strings
 	return_code = http_content.substr(9, 3); //extract return code
 	string all_ok = "200";
 	ok = true;
@@ -123,18 +117,21 @@ int main(int argc, char * argv[]) {
 	else {
 		/* print first part of response: header, error code, etc. */
 		substring_marker = http_content.find("Content-length:");
-		substring_marker = http_content.find("\r\n\r\n", substring_marker);
-		fprintf(stdout, "%s", (http_content.substr(0, substring_marker)).c_str());
+		if(substring_marker == -1)
+			fprintf(stdout, "%s", http_content.c_str()); //makes code operable with outside http requests that use different headers
+		else {
+			substring_marker = http_content.find("\r\n\r\n", substring_marker);
+			fprintf(stdout, "%s", (http_content.substr(0, substring_marker)).c_str());
+		}
 	}
     /* second read loop -- print out the rest of the response: real web content */
-    if(ok && substring_marker!=-2)
+    if(ok && substring_marker!=-1)
 		fprintf(stdout, "%s", (http_content.substr(substring_marker)).c_str());
 	while (more_to_read != false) {
 		memset(buff_in, 0, sizeof(buff_in));
-		//printf("there is more to read");
-		return_val = recv(client_socket, buff_in, sizeof(buff_in), 0); 
+		return_val = minet_read(client_socket, buff_in, sizeof(buff_in));
 		if (return_val < 0) {
-			perror("Error reading from socket");
+			minet_perror("Error reading from socket");
 			exit(-1);
 		}
 		if (return_val == 0) {
@@ -146,8 +143,9 @@ int main(int argc, char * argv[]) {
 			fprintf(stderr, "%s", buff_in);
 	}
     /*close socket and deinitialize */
-	close(client_socket);
+	minet_close(client_socket);
 	freeaddrinfo(return_addresses);
+	minet_deinit();
     if (ok) {
 	return 0;
     } else {

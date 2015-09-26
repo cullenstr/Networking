@@ -1,6 +1,5 @@
-/* UNCOMMENT FOR MINET 
- * #include "minet_socket.h"
- */
+#include "minet_socket.h"
+
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -47,22 +46,18 @@ int main(int argc, char * argv[])
     
     /* initialize */
     if (toupper(*(argv[1])) == 'K') { 
-	/* UNCOMMENT FOR MINET 
-	 * minet_init(MINET_KERNEL);
-         */
+		minet_init(MINET_KERNEL);
     } else if (toupper(*(argv[1])) == 'U') { 
-	/* UNCOMMENT FOR MINET 
-	 * minet_init(MINET_USER);
-	 */
+		minet_init(MINET_USER);
     } else {
 	fprintf(stderr, "First argument must be k or u\n");
 	exit(-1);
     }
 
     /* initialize and make socket */
-	accept_sock=socket(AF_INET, SOCK_STREAM,0);
+	accept_sock=minet_socket(SOCK_STREAM); //accept socket will monitor for and accept connections
 	if (accept_sock==-1) {
-		perror("Error on socket(): ");
+		minet_perror("Error on socket(): ");
 		exit(-1);
 	}
 	fdmax = accept_sock;
@@ -74,15 +69,18 @@ int main(int argc, char * argv[])
 	sa.sin_family = AF_INET;
 	
     /* bind listening socket */
-	rc = bind(accept_sock, (struct sockaddr *)&sa,sizeof(sa));
+	rc = minet_bind(accept_sock, &sa);
 	if (rc==-1) {
-		perror("Error on bind(): ");
+		minet_perror("Error on minet_bind(): ");
+		minet_close(accept_sock); //important to close socket before exiting so port isn't tied up
 		exit(-1);
 	}
+	
     /* start listening */
-	rc = listen(accept_sock, 5);
+	rc = minet_listen(accept_sock,5);
 	if (rc==-1) {
-		perror("Error on listen(): ");
+		minet_perror("Error on listen(): ");
+		minet_close(accept_sock); 
 		exit(-1);
 	}
 		
@@ -90,27 +88,15 @@ int main(int argc, char * argv[])
 	cout<<"Server status: Waiting...\n";
 	
 	//initialize list of connections
-	fd_set connection_list;
+	fd_set connection_list; //list of non-minet sockets, currently 0
 	FD_ZERO(&connection_list);
-	FD_SET(accept_sock, &connection_list); //remove for minet
-	
-	/*minet
-	fd_set minet_connection_list;
-	FD_ZERO(&minet_connection_list);
-	FD_SET(accept_sock, &minet_connection_list);
-	int minet_fdmax = accept_sock;
-	*/
+	FD_SET(accept_sock, &_connection_list);
+
 	
 	/* create read list */
 	fd_set read_list;
 	FD_ZERO(&read_list);
-	
-	/*minet:
-	fd_set minet_read_list;
-	FD_ZERO(&minet_read_list);
-	FD_SET(connect_sock, &minet_read_lsit);
-	minet_read_list = minet_connection_list;
-	*/
+
 		
     while (1) 
 	{
@@ -118,26 +104,26 @@ int main(int argc, char * argv[])
 		memcpy(&read_list, &connection_list, sizeof(&connection_list));
 		
 		/* do a select */
-		connections = select( fdmax+1, &read_list, NULL, NULL, &t); //remove in case of minet
-		//return_val = minet_select( minet_fdmax+1, &minet_read_list, NULL, NULL, fdmax+1, &read_list, NULL, NULL, NULL);
+		connections = minet_select( fdmax+1, &read_list, NULL, NULL, &t);
 		if (connections < 0) 
 		{ 
-			perror("Select failed.\n"); exit(-1);
+			minet_perror("Select failed.\n"); exit(-1);
 		}	
 		
 		/* process sockets that are ready */
 		for(int i=0; (i <= fdmax) && (connections>0); ++i) 
 		{
-			if(FD_ISSET(i,&read_list)) 
+			if(FD_ISSET(i,&read_list))
 			{
 				connections--;
 				/* for the accept socket, add accepted connection to connections */
 				if(i == accept_sock) 
 				{
 					int size=sizeof(struct sockaddr_in); 
-					if ((sock_a = accept(i,(struct sockaddr *)&sa, (socklen_t*)&size)) <0) 
+					minet_accept(accept_sock, &sa_connect))
+					if ((sock_a = minet_accept(i, &sa)) <0) 
 					{
-						perror("Accept failed.\n"); exit (-1);
+						minet_perror("Accept failed.\n"); exit (-1);
 					}
 					cout<<"Added an accepted connection to connections.\n";
 
@@ -151,7 +137,7 @@ int main(int argc, char * argv[])
 					rc = handle_connection(i);
 					if (rc < 0) 
 						perror("handle_connection error.\n"); 
-					close(i);
+					minet_close(i);
 					FD_CLR(i, &connection_list); //remove i from set_socks
 					cout<<"Removed a connection from the list of connections.\n";
 					if (i == fdmax) 
@@ -161,9 +147,6 @@ int main(int argc, char * argv[])
 				}
 			}
 		}
-		/*processing minet sockets that are ready
-		Will be a lot like the iteration above, need to copy/paste and then edit for minet functions and lists
-		*/
 	}
 }
 
@@ -186,8 +169,8 @@ int handle_connection(int connect_sock) {
     int n =0;
     fd_set sockfd;
     FD_SET(connect_sock,&sockfd);
-    select(connect_sock+1, &sockfd, NULL, NULL, NULL);
-    n = recv(connect_sock, buffer, BUFSIZE,0);
+    minet_select(connect_sock+1, &sockfd, NULL, NULL, NULL);
+    n = minet_read(connect_sock, buffer, BUFSIZE);
     /* parse request to get file name */
     /* Assumption: this is a GET request and filename contains no spaces*/
     int end_index =-1;
@@ -200,7 +183,7 @@ int handle_connection(int connect_sock) {
     }
     if(end_index==-1 || end_index>n-8)
     {
-        close(connect_sock);
+        minet_close(connect_sock);
         return -1;
     }
     char filename[end_index-4];
@@ -219,17 +202,17 @@ int handle_connection(int connect_sock) {
         size = st.st_size;
         char response[128];
         int val = sprintf(response, ok_response_f,size);
-        n=send(connect_sock, response, strlen(response),0);
+        n=minet_write(connect_sock, response, strlen(response));
 	/* send file */
 		do
 		{
 			n = read(fileno(fp), buffer,BUFSIZE);
-			val = send(connect_sock,buffer,n,0);
+			val = minet_write(connect_sock,buffer,n);
 		} while(n>0);
     } 
 	else {
 	// send error response
-        n=send(connect_sock,notok_response,strlen(notok_response),0);
+        n=minet_write(connect_sock,notok_response,strlen(notok_response));
     }
     
     /* close socket and free space */

@@ -1,6 +1,5 @@
-/* UNCOMMENT FOR MINET 
- * #include "minet_socket.h"
- */
+#include "minet_socket.h"
+
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -38,22 +37,18 @@ int main(int argc, char * argv[]) {
 
     /* initialize */
     if (toupper(*(argv[1])) == 'K') { 
-	/* UNCOMMENT FOR MINET 
-	 * minet_init(MINET_KERNEL);
-         */
+		minet_init(MINET_KERNEL);
     } else if (toupper(*(argv[1])) == 'U') { 
-	/* UNCOMMENT FOR MINET 
-	 * minet_init(MINET_USER);
-	 */
+		minet_init(MINET_USER);
     } else {
 	fprintf(stderr, "First argument must be k or u\n");
 	exit(-1);
     }
 
     /* initialize and make socket */
-	accept_sock=socket(AF_INET, SOCK_STREAM,0);
+	accept_sock=minet_socket(SOCK_STREAM); //accept socket will monitor for and accept connections
 	if (accept_sock==-1) {
-		perror("Error on socket(): ");
+		minet_perror("Error on minet_socket(): ");
 		exit(-1);
 	}
     /* set server address*/
@@ -62,16 +57,20 @@ int main(int argc, char * argv[]) {
 	sa.sin_port = htons(server_port);
 	sa.sin_addr.s_addr = htonl(INADDR_ANY);
 	sa.sin_family = AF_INET;
+	
     /* bind listening socket */
-	rc = bind(accept_sock, (struct sockaddr *)&sa,sizeof(sa));
+	rc = minet_bind(accept_sock, &sa);
 	if (rc==-1) {
-		perror("Error on bind(): ");
+		minet_perror("Error on minet_bind(): ");
+		minet_close(accept_sock); //important to close socket before exiting so port isn't tied up
 		exit(-1);
 	}
+	
     /* start listening */
-	rc = listen(accept_sock,5);
+	rc = minet_listen(accept_sock,5);
 	if (rc==-1) {
-		perror("Error on listen(): ");
+		minet_perror("Error on listen(): ");
+		minet_close(accept_sock); 
 		exit(-1);
 	}
     /* connection handling loop: wait to accept connection */
@@ -80,12 +79,13 @@ int main(int argc, char * argv[]) {
     	struct sockaddr_in sa_connect;
         int connect_sock;
         int size=sizeof(struct sockaddr_in); 
-    	if((connect_sock = accept(accept_sock, (struct sockaddr *)&sa_connect, (socklen_t*)&size))==-1)
-            printf("error in accept(): %s\n", strerror(errno));
+    	if((connect_sock = minet_accept(accept_sock, &sa_connect))==-1)
+            minet_perror("error in accept(): ");
         else
     	   rc = handle_connection(connect_sock);
     }
-    close(accept_sock);
+    minet_close(accept_sock);
+    minet_deinit();
 }
 
 int handle_connection(int connect_sock) {
@@ -107,8 +107,8 @@ int handle_connection(int connect_sock) {
     int n =0;
     fd_set sockfd;
     FD_SET(connect_sock,&sockfd);
-    select(connect_sock+1, &sockfd, NULL, NULL, NULL);
-    n = recv(connect_sock, buffer, BUFSIZE,0);
+    minet_select(connect_sock+1, &sockfd, NULL, NULL, NULL);
+    n = minet_read(connect_sock, buffer, BUFSIZE);
     /* parse request to get file name */
     /* Assumption: this is a GET request and filename contains no spaces*/
     int end_index =-1;
@@ -121,7 +121,7 @@ int handle_connection(int connect_sock) {
     }
     if(end_index==-1 || end_index>n-8)
     {
-        close(connect_sock);
+        minet_close(connect_sock);
         return -1;
     }
     char filename[end_index-4];
@@ -140,21 +140,21 @@ int handle_connection(int connect_sock) {
         size = st.st_size;
         char response[128];
         int val = sprintf(response, ok_response_f,size);
-        n=send(connect_sock, response, strlen(response),0);
+        n=minet_write(connect_sock, response, strlen(response));
 	/* send file */
 		do
 		{
 			n = read(fileno(fp), buffer,BUFSIZE);
-			val = send(connect_sock,buffer,n,0);
+			val = minet_write(connect_sock,buffer,n);
 		} while(n>0);
     } 
 	else {
 	// send error response
-        n=send(connect_sock,notok_response,strlen(notok_response),0);
+        n=minet_write(connect_sock,notok_response,strlen(notok_response));
     }
     
     /* close socket and free space */
-    close(connect_sock);
+    minet_close(connect_sock);
     if (ok) {
 	return 0;
     } else {

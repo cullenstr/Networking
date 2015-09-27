@@ -9,7 +9,7 @@ http_client.c - compilable but untested version of http_client using minet funct
 http_server1.c - compilable but untested version of http_server1 using minet functions 
 http_server2.c - compilable but untested version of http_server1 using minet functions 
 http_server3.c - including so that makefile will function, we did not complete the extra credit 
-(do we want to include regular networking versions of our working programs?)
+
 http_client_k.c - tested and working version of the http_client that runs without minet, utilizing standard networking functions
 http_server1_k.c - tested and working version of the http_server1 that runs without minet, utilizing standard networking functions
 http_server2_k.c -t ested and working version of the http_server2 that runs without minet, utilizing standard networking functions

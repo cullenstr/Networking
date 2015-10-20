@@ -6,3 +6,9 @@ Cullen Strouse, cls161, cls161@pitt.edu
 
 Included files
 tcp_module.cc
+
+Currently working on
+Figuring out why nc and ping cannot find route to tcp_server running under minet???
+Step 12 - partially complete.  Still need to figure out sequence numbers, acks and timers for this step
+Reading +understanding all the information for steps 8-11 (ongoing)
+	

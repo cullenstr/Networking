@@ -26,6 +26,10 @@
 
 using namespace std;
 
+void make_packet(Packet &send_p, ConnectionToStateMapping<TCPState> &c, unsigned char flags, int data_size);
+int packet_send(const MinetHandle &handle, Packet &p);
+int packet_receive(const MinetHandle &handle, Packet &p);
+
 /*struct TCPState {
     // need to write this
     std::ostream & Print(std::ostream &os) const { 
@@ -90,44 +94,34 @@ int main(int argc, char * argv[]) {
 			//we're assuming the current state is LISTEN
 			Packet p;
 			Packet send_p;
+			packet_receive( mux, p);
 			IPHeader iph;
 			iph=p.FindHeader(Headers::IPHeader);
 			TCPHeader tcph;
 			tcph=p.FindHeader(Headers::TCPHeader);
 			unsigned char flags=0;
 			tcph.GetFlags(flags);
-			if(IS_SYN(flags)==True) {
+			if(IS_SYN(flags)==true) {
 				//this is our syn request
 				iph.GetDestIP(c.src); //fill out connection
 				iph.GetSourceIP(c.dest);
 				iph.GetProtocol(c.protocol);
 				tcph.GetDestPort(c.srcport);
 				tcph.GetSourcePort(c.destport);
-				c.state.SetState(SYN_RCVD);
-				clist.push_back(c); //add connection to connection list
+				c_mapping.state.SetState(SYN_RCVD);
+				clist.push_back(c_mapping); //add connection to connection list
 				//ConnectionToStateMapping<TCPState> c_mapping(c, timeout, c_state, false); 
 				//connection saved.  Now we send an syn_ack
-				//lets reuse the iph and tcph headers
-				iph.SetSourceIP(c.connection.src);
-				iph.SetDestIP(c.connection.dest);
-				iph.SetTotalLength(IP_HEADER_BASE_LENGTH + TCP_HEADER_BASE_LENGTH); //there is no data in an syn_ack
-				iph.SetProtocol(IP_PROTO_TCP);
-				send_p.PushFrontHeader(iph); //I think IP should be the front header?  
-				tcph.SetSourcePort(c.connection.src, send_p);
-				tcph.SetDestPort(c.connection.dest, send_p);
-				tcph.SetHeaderLen(TCP_HEADER_BASE_LENGTH, send_p);
 				flags = 0;
 				SET_ACK(flags);
+				SET_SYN(flags);
 				tcph.SetFlags(flags, send_p);
-				//tcph.SetAckNum not sure how to set these yet?
-				//tcph.SetSeqNum
-				//tcph.SetWinSize
-				send_p.PushBackHeader(tcph); //if IP is front, tcp is back
+				int initial_seq_num = rand(); //placeholder.  How do we want to set our seq number?
+				c_mapping.state.SetLastAcked(initial_seq_num); //this will be sent as our sequence number
+				make_packet( send_p, c_mapping, flags, 0);
 				//okay, now we have two headers 
 				MinetSend(mux, send_p);
 			}
-			//not syn, could be ack after syn.  Let's check the list!
-			//ConnectionList<UDPState>::iterator cs = clist.FindMatching(c);
 		// ip packet has arrived!
 	    }
 
@@ -171,4 +165,80 @@ int main(int argc, char * argv[]) {
     MinetDeinit();
 
     return 0;
+}
+
+//function to wrap MinetSend in order to simulate packet loss
+//still need to implement: reordering
+int packet_send(const MinetHandle &handle, Packet &p) {
+	int return_val=-1;
+	bool packet_loss=false; //do we want to simulate packet loss?
+	bool corruption=false; //do we want to simulate corruption?
+	int loss_1_out_of=10; //if loss==true, drop/corrupt 1 packet out of every x
+	int drop = (rand()%loss_1_out_of) + 1;
+	if (corruption==true && drop==1) { //for now we'll only simulate corruption with packets
+		unsigned short check = 0;
+		TCPHeader tcph;
+		tcph=p.FindHeader(Headers::TCPHeader);
+		tcph.GetChecksum(check);
+		check+=10; //corrupt the checksum
+		tcph.SetChecksum(check);
+		p.PushBackHeader(tcph);
+	}
+	if (packet_loss==true && drop==1) {
+		//do nothing, packet is not sent
+	}
+	else {
+		return_val = MinetSend(handle, p);
+	}
+	return return_val;
+}
+
+//function to wrap MinetRecieve in order to simulate packet loss
+//still need to implement: reordering
+
+int packet_receive(const MinetHandle &handle, Packet &p) {
+	int return_val=-1;
+	bool packet_loss=false; //do we want to simulate packet loss?
+	bool corruption=false; //do we want to simulate corruption?
+	int loss_1_out_of = 10; //if loss==true, drop/corrupt 1 packet out of every x
+	int drop = (rand()%loss_1_out_of) + 1;
+	if (packet_loss==true && drop==1) {
+		//do nothing, packet is not recieved
+	}
+	else {
+		return_val = MinetReceive(handle, p);
+	}
+	if( corruption==true && drop==1) {
+		unsigned short check = 0;
+		TCPHeader tcph;
+		tcph=p.FindHeader(Headers::TCPHeader);
+		tcph.GetChecksum(check);
+		check+=10; //corrupt the checksum
+		tcph.SetChecksum(check);
+		p.PushBackHeader(tcph);
+	}
+	return return_val;
+}
+
+void make_packet(Packet &send_p, ConnectionToStateMapping<TCPState> &c, unsigned char flags, int data_size) {
+	IPHeader iph;
+	TCPHeader tcph;
+	
+	iph.SetSourceIP(c.connection.src);
+	iph.SetDestIP(c.connection.dest);
+	iph.SetTotalLength(data_size + IP_HEADER_BASE_LENGTH + TCP_HEADER_BASE_LENGTH);
+	iph.SetProtocol(IP_PROTO_TCP);
+	send_p.PushFrontHeader(iph);
+	
+	tcph.SetSourcePort(c.connection.src, send_p);
+	tcph.SetDestPort(c.connection.dest, send_p);
+	tcph.SetHeaderLen(TCP_HEADER_BASE_LENGTH, send_p);
+	tcph.SetFlags(flags, send_p);
+	tcph.SetAckNum(c.state.GetLastRecvd(), send_p);
+	tcph.SetSeqNum(c.state.GetLastAcked(), send_p);
+	tcph.SetWinSize(c.state.GetN(), send_p);
+	tcph.SetUrgentPtr(0, send_p);
+	send_p.PushBackHeader(tcph);
+	
+	return;
 }

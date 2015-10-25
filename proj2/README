@@ -9,9 +9,13 @@ tcp_module.cc
 
 Currently working on
 Step 12 - partially complete.  Still need to figure out sequence numbers, acks and timers for this step
+	Currently starting with a random sequence number
+	Think I've figured out acks
+	Using a base timer of 1 sec for ack-syn, no timer for passive listening
 Reading +understanding all the information for steps 8-11 (ongoing)
+
 	
 Completed
 nc and ping weren't working because the ethernet address wasn't set.  Run setup.sh and then check that an appropriate ip address was set/change if necessary
 made wrappers for send and recieve packets that should simulate packet loss and corruption (still need to implement reordering)
-
+added messages to tcp_module monitor so we can see what's happening

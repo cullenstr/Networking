@@ -22,7 +22,7 @@
 #include <iostream>
 
 #include "Minet.h"
-#include "tcpstate.h" //pretty sure we have to rewrite TCPState, but better check first.  The provided one should work for now
+#include "tcpstate.h" //The provided one should work for now
 
 using namespace std;
 
@@ -87,40 +87,60 @@ int main(int argc, char * argv[]) {
 	
 	    if (event.handle == mux) {
 			MinetSendToMonitor(MinetMonitoringEvent("Packet has arrived..."));
+			cerr << "Packet has arrived...\n";
 			//step 12 prereq: have a hardcoded connection
+			Connection c_listen;
 			Connection c;
 			TCPState listen_state(1, LISTEN, 1);
-			ConnectionToStateMapping<TCPState> c_mapping (c, timeout, listen_state, false ); //need to set timeout.  What should initial value be?  Check rfc
-			//we're assuming the current state is LISTEN
+			ConnectionToStateMapping<TCPState> c_l_mapping (c_listen, timeout, listen_state, false ); //passive listen will not timeout
+			clist.push_back(c_l_mapping);
 			Packet p;
 			Packet send_p;
 			packet_receive( mux, p);
+			p.ExtractHeaderFromPayload<TCPHeader>(20);
 			IPHeader iph;
 			iph=p.FindHeader(Headers::IPHeader);
 			TCPHeader tcph;
 			tcph=p.FindHeader(Headers::TCPHeader);
 			unsigned char flags=0;
 			tcph.GetFlags(flags);
+			cerr << "We found the headers and got flags\n";
+			iph.GetDestIP(c.src); //fill out connection
+			iph.GetSourceIP(c.dest);
+			iph.GetProtocol(c.protocol);
+			tcph.GetDestPort(c.srcport);
+			tcph.GetSourcePort(c.destport);
 			if(IS_SYN(flags)==true) {
 				//this is our syn request
-				iph.GetDestIP(c.src); //fill out connection
-				iph.GetSourceIP(c.dest);
-				iph.GetProtocol(c.protocol);
-				tcph.GetDestPort(c.srcport);
-				tcph.GetSourcePort(c.destport);
-				c_mapping.state.SetState(SYN_RCVD);
-				clist.push_back(c_mapping); //add connection to connection list
-				//ConnectionToStateMapping<TCPState> c_mapping(c, timeout, c_state, false); 
-				//connection saved.  Now we send an syn_ack
-				flags = 0;
-				SET_ACK(flags);
-				SET_SYN(flags);
-				tcph.SetFlags(flags, send_p);
-				int initial_seq_num = rand(); //placeholder.  How do we want to set our seq number?
-				c_mapping.state.SetLastAcked(initial_seq_num); //this will be sent as our sequence number
-				make_packet( send_p, c_mapping, flags, 0);
-				//okay, now we have two headers 
-				MinetSend(mux, send_p);
+				cerr << "SYN request\n";
+				ConnectionList<TCPState>::iterator cs = clist.FindMatching(c_listen); //see if we are listening
+				if (cs!=clist.end()) { //we are listening
+					cerr << "We are in a passive open state\n";
+					int initial_seq_num = rand(); //placeholder.  How do we want to set our seq number?
+					TCPState new_state(initial_seq_num, SYN_RCVD, 1);
+					ConnectionToStateMapping<TCPState> c_mapping (c, timeout, new_state, true ); //default timeout of 1 second
+					clist.push_back(c_mapping); //add connection to connection list
+					cerr << "Connection added to list\n";
+					//connection saved.  Now we send an syn_ack
+					flags = 0;
+					SET_ACK(flags);
+					SET_SYN(flags);
+					cerr << "Set flags for syn-ack\n";
+					c_mapping.state.SetLastAcked(initial_seq_num); //this will be sent as our sequence number
+					cerr << "Ready to make packet\n";
+					make_packet( send_p, c_mapping, flags, 0);
+					packet_send(mux, send_p);
+				}
+				else {
+					cerr << "SYN request, but we aren't listening for connections";
+				}
+			}
+			else if(IS_ACK(flags)==true) {
+				cerr << "ACK packet\n";
+				ConnectionList<TCPState>::iterator cs = clist.FindMatching(c);
+				if (cs!=clist.end()) {
+					cerr << "Connection already open, go ahead\n";
+				}
 			}
 		// ip packet has arrived!
 	    }
@@ -128,32 +148,43 @@ int main(int argc, char * argv[]) {
 	    if (event.handle == sock) {
 		// socket request or response has arrived
 			MinetSendToMonitor(MinetMonitoringEvent("Socket request/response has arrived..."));
+			cerr << "Socket request has arrived...\n";
 			SockRequestResponse req;
 			MinetReceive(sock,req);
 			switch (req.type) {
 				case CONNECT: {
 					MinetSendToMonitor(MinetMonitoringEvent("Connect request"));
+					cerr << "Connect request\n";
 				}
 				case ACCEPT: {
 					MinetSendToMonitor(MinetMonitoringEvent("Accept request"));
+					cerr << "Accept request\n";
 				}
 				case STATUS: {
 					MinetSendToMonitor(MinetMonitoringEvent("Status request"));
+					cerr << "Status request\n";
 				}
 				case WRITE: {
 					MinetSendToMonitor(MinetMonitoringEvent("Write request"));
+					cerr << "Write request\n";
 				}
 				case FORWARD: {
 					MinetSendToMonitor(MinetMonitoringEvent("Forward request"));
+					cerr << "Forward request\n";
 				}
 				case CLOSE: {
 					MinetSendToMonitor(MinetMonitoringEvent("Close request"));
+					cerr << "Close request\n";
 				}
 				default: {
 					MinetSendToMonitor(MinetMonitoringEvent("Not a valid request"));
 				}
 			}
 	    }
+	    
+	    else{
+			MinetSendToMonitor(MinetMonitoringEvent("other request??..."));
+		}
 	}
 
 	if (event.eventtype == MinetEvent::Timeout) {
@@ -175,6 +206,7 @@ int packet_send(const MinetHandle &handle, Packet &p) {
 	bool corruption=false; //do we want to simulate corruption?
 	int loss_1_out_of=10; //if loss==true, drop/corrupt 1 packet out of every x
 	int drop = (rand()%loss_1_out_of) + 1;
+	cerr << "Using packet_send function: loss is " << packet_loss << " corruption is " << corruption << " drop is " << drop << "\n";
 	if (corruption==true && drop==1) { //for now we'll only simulate corruption with packets
 		unsigned short check = 0;
 		TCPHeader tcph;
@@ -183,12 +215,15 @@ int packet_send(const MinetHandle &handle, Packet &p) {
 		check+=10; //corrupt the checksum
 		tcph.SetChecksum(check);
 		p.PushBackHeader(tcph);
+		cerr << "Packet should be corrupted";
 	}
 	if (packet_loss==true && drop==1) {
 		//do nothing, packet is not sent
+		cerr << "Packet dropped";
 	}
 	else {
 		return_val = MinetSend(handle, p);
+		cerr << "Packet sent";
 	}
 	return return_val;
 }
@@ -221,6 +256,7 @@ int packet_receive(const MinetHandle &handle, Packet &p) {
 }
 
 void make_packet(Packet &send_p, ConnectionToStateMapping<TCPState> &c, unsigned char flags, int data_size) {
+	cerr << "making a packet\n";
 	IPHeader iph;
 	TCPHeader tcph;
 	
@@ -229,7 +265,7 @@ void make_packet(Packet &send_p, ConnectionToStateMapping<TCPState> &c, unsigned
 	iph.SetTotalLength(data_size + IP_HEADER_BASE_LENGTH + TCP_HEADER_BASE_LENGTH);
 	iph.SetProtocol(IP_PROTO_TCP);
 	send_p.PushFrontHeader(iph);
-	
+
 	tcph.SetSourcePort(c.connection.src, send_p);
 	tcph.SetDestPort(c.connection.dest, send_p);
 	tcph.SetHeaderLen(TCP_HEADER_BASE_LENGTH, send_p);
@@ -239,6 +275,6 @@ void make_packet(Packet &send_p, ConnectionToStateMapping<TCPState> &c, unsigned
 	tcph.SetWinSize(c.state.GetN(), send_p);
 	tcph.SetUrgentPtr(0, send_p);
 	send_p.PushBackHeader(tcph);
-	
+	cerr << "Made packet, returning...\n";
 	return;
 }

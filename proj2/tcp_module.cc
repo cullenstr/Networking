@@ -3,8 +3,8 @@
 
 // For project parts A and B, an appropriate binary will be 
 // copied over as part of the build process
-
-
+#define PASSIVE_OPEN
+//#define ACTIVE_OPEN
 
 #include <sys/time.h>
 #include <sys/types.h>
@@ -86,14 +86,17 @@ int main(int argc, char * argv[]) {
 	    (event.direction == MinetEvent::IN)) {
 	
 	    if (event.handle == mux) {
-			MinetSendToMonitor(MinetMonitoringEvent("Packet has arrived..."));
+			MinetSendToMonitor(MinetMonitoringEvent("Packet has arrived...\n"));
 			cerr << "Packet has arrived...\n";
 			//step 12 prereq: have a hardcoded connection
 			Connection c_listen;
 			Connection c;
 			TCPState listen_state(1, LISTEN, 1);
 			ConnectionToStateMapping<TCPState> c_l_mapping (c_listen, timeout, listen_state, false ); //passive listen will not timeout
+			#ifdef PASSIVE_OPEN
+			cerr << "Passive_open state\n";
 			clist.push_back(c_l_mapping);
+			#endif
 			Packet p;
 			Packet send_p;
 			packet_receive( mux, p);
@@ -132,7 +135,7 @@ int main(int argc, char * argv[]) {
 					packet_send(mux, send_p);
 				}
 				else {
-					cerr << "SYN request, but we aren't listening for connections";
+					cerr << "SYN request, but we aren't listening for connections\n";
 				}
 			}
 			else if(IS_ACK(flags)==true) {
@@ -140,6 +143,7 @@ int main(int argc, char * argv[]) {
 				ConnectionList<TCPState>::iterator cs = clist.FindMatching(c);
 				if (cs!=clist.end()) {
 					cerr << "Connection already open, go ahead\n";
+					//if this connection is in the state SYN_RCVD, set to ESTABLISHED, extract data and send reply
 				}
 			}
 		// ip packet has arrived!
@@ -150,11 +154,30 @@ int main(int argc, char * argv[]) {
 			MinetSendToMonitor(MinetMonitoringEvent("Socket request/response has arrived..."));
 			cerr << "Socket request has arrived...\n";
 			SockRequestResponse req;
+			SockRequestResponse response;
+			Packet send_p;
 			MinetReceive(sock,req);
-			switch (req.type) {
+			ConnectionList<TCPState>::iterator cs = clist.FindMatching(req.connection);
+			if (cs==clist.end()) { //this is not an open connection
+				switch (req.type) {
 				case CONNECT: {
 					MinetSendToMonitor(MinetMonitoringEvent("Connect request"));
 					cerr << "Connect request\n";
+					//active open
+					TCPState new_con_state(rand(), SYN_SENT, 1);
+					ConnectionToStateMapping<TCPState> new_mapping (req.connection, timeout, new_con_state, true); 
+					//send status response immediately
+					response.type = STATUS;
+					response.connection = req.connection;
+					response.bytes = 0;
+					response.error = EOK;
+					MinetSend(sock, response);
+					//make a SYN packet
+					unsigned char flags = 0;
+					SET_SYN(flags);
+					make_packet(send_p, new_mapping, flags, 0);
+					//send SYN packet
+					packet_send( mux, send_p);
 				}
 				case ACCEPT: {
 					MinetSendToMonitor(MinetMonitoringEvent("Accept request"));
@@ -166,19 +189,52 @@ int main(int argc, char * argv[]) {
 				}
 				case WRITE: {
 					MinetSendToMonitor(MinetMonitoringEvent("Write request"));
-					cerr << "Write request\n";
+					cerr << "Write request for invalid connection\n";
 				}
 				case FORWARD: {
 					MinetSendToMonitor(MinetMonitoringEvent("Forward request"));
 					cerr << "Forward request\n";
+					//return 0 status, tcp ignores this socket connection
 				}
 				case CLOSE: {
 					MinetSendToMonitor(MinetMonitoringEvent("Close request"));
-					cerr << "Close request\n";
+					cerr << "Close request - error, invalid connection\n";
+					//send status with error code
 				}
 				default: {
 					MinetSendToMonitor(MinetMonitoringEvent("Not a valid request"));
 				}
+			}
+			else { //this is an open connection
+				switch (req.type) {
+					case CONNECT: {
+						MinetSendToMonitor(MinetMonitoringEvent("Connect request"));
+						cerr << "Cannot connect - connection already open\n";
+					}
+					case ACCEPT: {
+						MinetSendToMonitor(MinetMonitoringEvent("Accept request"));
+						cerr << "Accept request - connection already open\n";
+					}
+					case STATUS: {
+						MinetSendToMonitor(MinetMonitoringEvent("Status request"));
+						cerr << "Status request\n";
+					}
+					case WRITE: {
+						MinetSendToMonitor(MinetMonitoringEvent("Write request"));
+						cerr << "Write request\n";
+					}
+					case FORWARD: {
+						MinetSendToMonitor(MinetMonitoringEvent("Forward request"));
+						cerr << "Forward request\n";
+						//return 0 status, tcp ignores this socket connection
+					}
+					case CLOSE: {
+						MinetSendToMonitor(MinetMonitoringEvent("Close request"));
+						cerr << "Close request\n";
+					}
+					default: {
+						MinetSendToMonitor(MinetMonitoringEvent("Not a valid request"));
+					}
 			}
 	    }
 	    

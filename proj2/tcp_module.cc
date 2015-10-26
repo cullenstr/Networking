@@ -3,8 +3,8 @@
 
 // For project parts A and B, an appropriate binary will be 
 // copied over as part of the build process
-#define PASSIVE_OPEN
-//#define ACTIVE_OPEN
+
+
 
 #include <sys/time.h>
 #include <sys/types.h>
@@ -20,13 +20,14 @@
 
 
 #include <iostream>
+#include <string>
 
 #include "Minet.h"
 #include "tcpstate.h" //The provided one should work for now
 
 using namespace std;
 
-void make_packet(Packet &send_p, ConnectionToStateMapping<TCPState> &c, unsigned char flags, int data_size);
+Packet make_packet(const Connection c, const unsigned int &seqnum, const unsigned int &acknum, unsigned char &flags, int data_size);
 int packet_send(const MinetHandle &handle, Packet &p);
 int packet_receive(const MinetHandle &handle, Packet &p);
 
@@ -71,170 +72,169 @@ int main(int argc, char * argv[]) {
 	return -1;
     }
     
-    cerr << "tcp_module STUB VERSION handling tcp traffic.......\n";
+    cerr << "tcp_module handling tcp traffic.......\n";
 
-    MinetSendToMonitor(MinetMonitoringEvent("tcp_module STUB VERSION handling tcp traffic........"));
+    MinetSendToMonitor(MinetMonitoringEvent("tcp_module handling tcp traffic........"));
 
-    MinetEvent event;
-    double timeout = 1;
+	srand(time(NULL));
 	
-
+    MinetEvent event;
+    double timeout = 1000;
+	unsigned char flags=0;
+	unsigned char prev_flags;
+	unsigned int ack_num = 0;
+	unsigned int initial_seq_num = 0;
+	
+	unsigned int &aptr = ack_num;
+	unsigned char &fptr = flags;
+	unsigned int &sptr = initial_seq_num;
 	
     while (MinetGetNextEvent(event, timeout) == 0) {
 
 	if ((event.eventtype == MinetEvent::Dataflow) && 
 	    (event.direction == MinetEvent::IN)) {
 	
-	    if (event.handle == mux) {
-			MinetSendToMonitor(MinetMonitoringEvent("Packet has arrived...\n"));
-			cerr << "Packet has arrived...\n";
-			//step 12 prereq: have a hardcoded connection
-			Connection c_listen;
+	    if (event.handle == mux) { // ip packet has arrived!
+			MinetSendToMonitor(MinetMonitoringEvent("Packet has arrived..."));
+			//cerr << "Packet has arrived...\n";
+			flags = 0; //set flags to 0;
+			
 			Connection c;
-			TCPState listen_state(1, LISTEN, 1);
-			ConnectionToStateMapping<TCPState> c_l_mapping (c_listen, timeout, listen_state, false ); //passive listen will not timeout
-			#ifdef PASSIVE_OPEN
-			cerr << "Passive_open state\n";
-			clist.push_back(c_l_mapping);
-			#endif
 			Packet p;
-			Packet send_p;
-			packet_receive( mux, p);
-			p.ExtractHeaderFromPayload<TCPHeader>(20);
+			MinetReceive(mux,p);
+			p.ExtractHeaderFromPayload<TCPHeader>(TCPHeader::EstimateTCPHeaderLength(p));
+			
 			IPHeader iph;
 			iph=p.FindHeader(Headers::IPHeader);
 			TCPHeader tcph;
 			tcph=p.FindHeader(Headers::TCPHeader);
-			unsigned char flags=0;
-			tcph.GetFlags(flags);
-			cerr << "We found the headers and got flags\n";
+			tcph.GetFlags(prev_flags);
+			tcph.GetSeqNum(aptr);
+	        tcph.GetAckNum(sptr);
+			
 			iph.GetDestIP(c.src); //fill out connection
 			iph.GetSourceIP(c.dest);
-			iph.GetProtocol(c.protocol);
 			tcph.GetDestPort(c.srcport);
 			tcph.GetSourcePort(c.destport);
-			if(IS_SYN(flags)==true) {
-				//this is our syn request
-				cerr << "SYN request\n";
-				ConnectionList<TCPState>::iterator cs = clist.FindMatching(c_listen); //see if we are listening
-				if (cs!=clist.end()) { //we are listening
-					cerr << "We are in a passive open state\n";
-					int initial_seq_num = rand(); //placeholder.  How do we want to set our seq number?
-					TCPState new_state(initial_seq_num, SYN_RCVD, 1);
-					ConnectionToStateMapping<TCPState> c_mapping (c, timeout, new_state, true ); //default timeout of 1 second
-					clist.push_back(c_mapping); //add connection to connection list
-					cerr << "Connection added to list\n";
-					//connection saved.  Now we send an syn_ack
-					flags = 0;
-					SET_ACK(flags);
-					SET_SYN(flags);
-					cerr << "Set flags for syn-ack\n";
-					c_mapping.state.SetLastAcked(initial_seq_num); //this will be sent as our sequence number
-					cerr << "Ready to make packet\n";
-					make_packet( send_p, c_mapping, flags, 0);
-					packet_send(mux, send_p);
-				}
-				else {
-					cerr << "SYN request, but we aren't listening for connections\n";
-				}
+			c.protocol = IP_PROTO_TCP;
+			
+	        cerr << "TCPHeader: "<<tcph << "\n\n";
+				
+			ConnectionList<TCPState>::iterator cs = clist.FindMatching(c);
+			if (initial_seq_num==0) //if not set yet
+				initial_seq_num = rand(); //placeholder.  How do we want to set our seq number?
+		
+			switch ((*cs).state.GetState()) 
+			{
+				case LISTEN:
+					if( (IS_SYN(prev_flags) && !IS_ACK(prev_flags)) || IS_RST(prev_flags)) 
+					{ //this is our syn request
+						cerr << "SYN request in a passive open state\n";
+						(*cs).state.SetState(SYN_RCVD);
+						(*cs).state.SetLastSent(initial_seq_num);
+						flags=0;
+						SET_SYN(flags);
+						SET_ACK(flags);
+				
+						//connection saved.  Now we send an syn_ack
+						cerr << "Set flags for syn-ack\n";
+						cerr << "Ready to make packet\n";
+						Packet send_p = make_packet(c, sptr, aptr+1, fptr, 0);
+						packet_send(mux, send_p);
+						(*cs).state.SetLastRecvd(aptr + 1);
+					} break;
+					
+				case SYN_RCVD: 
+					if (IS_ACK(prev_flags)) 
+					{
+						cerr << "ESTABLISHED\n";
+						(*cs).state.SetState(ESTABLISHED);
+					} 
+					else if ((IS_SYN(prev_flags) && !IS_ACK(prev_flags)) || IS_RST(prev_flags))
+					{
+						cerr << "SEND SYNACK\n";    
+						(*cs).state.SetLastSent(initial_seq_num);
+						SET_SYN(flags);
+						SET_ACK(flags);
+						Packet send_p = make_packet(c, sptr, aptr+1, fptr, 0);
+						packet_send(mux, send_p);
+						(*cs).state.SetLastRecvd(aptr+1);
+					}
+					break;	
+					
+				case SYN_SENT:
+				{
+					cerr << "connection state: SYN_SENT\n";
+				} break;
+						
+				case ESTABLISHED:
+				{
+					cerr << "connection state: established\n";
+					Buffer data;
+					data = p.GetPayload();
+					SockRequestResponse write(WRITE, (*cs).connection, data, 0, EOK); //send some data
+					MinetSend(sock, write);
+				} break;
+				
+				case FIN_WAIT1:
+				{
+					cerr << "connection state: FIN_WAIT1\n";
+				} break;
+				
+				case FIN_WAIT2:
+				{
+					cerr << "connection state: FIN_WAIT2\n";
+				} break;
+					
+				case LAST_ACK:
+				{
+					cerr << "connection state: LAST_ACK\n";
+				} break;
 			}
-			else if(IS_ACK(flags)==true) {
-				cerr << "ACK packet\n";
-				ConnectionList<TCPState>::iterator cs = clist.FindMatching(c);
-				if (cs!=clist.end()) {
-					cerr << "Connection already open, go ahead\n";
-					//if this connection is in the state SYN_RCVD, set to ESTABLISHED, extract data and send reply
-				}
-			}
-		// ip packet has arrived!
-	    }
+	    } //ENDIF event.handle == mux
 
 	    if (event.handle == sock) {
 		// socket request or response has arrived
-			MinetSendToMonitor(MinetMonitoringEvent("Socket request/response has arrived..."));
 			cerr << "Socket request has arrived...\n";
+			
 			SockRequestResponse req;
-			SockRequestResponse response;
-			Packet send_p;
 			MinetReceive(sock,req);
 			ConnectionList<TCPState>::iterator cs = clist.FindMatching(req.connection);
-			if (cs==clist.end()) { //this is not an open connection
-				switch (req.type) {
-				case CONNECT: {
+			ConnectionToStateMapping<TCPState> c_mapping;
+			
+			if (cs == clist.end()) 
+			{
+	            c_mapping.connection = req.connection;
+	            c_mapping.state.SetState(CLOSED);
+	            clist.push_back(c_mapping);
+                cs = clist.FindMatching(req.connection);
+	        }
+			
+			switch (req.type) {
+				case CONNECT: { //active open
 					MinetSendToMonitor(MinetMonitoringEvent("Connect request"));
 					cerr << "Connect request\n";
-					//active open
-					TCPState new_con_state(rand(), SYN_SENT, 1);
-					ConnectionToStateMapping<TCPState> new_mapping (req.connection, timeout, new_con_state, true); 
-					//send status response immediately
-					response.type = STATUS;
-					response.connection = req.connection;
-					response.bytes = 0;
-					response.error = EOK;
-					MinetSend(sock, response);
-					//make a SYN packet
-					unsigned char flags = 0;
-					SET_SYN(flags);
-					make_packet(send_p, new_mapping, flags, 0);
-					//send SYN packet
-					packet_send( mux, send_p);
-				}
-				case ACCEPT: {
-					MinetSendToMonitor(MinetMonitoringEvent("Accept request"));
-					cerr << "Accept request\n";
-				}
+				} break;
+				case ACCEPT: { //passive open
+					(*cs).state.SetState(LISTEN);
+					cerr << "Accept request. Set state to LISTEN for passive open\n";
+				} break;
 				case STATUS: {
 					MinetSendToMonitor(MinetMonitoringEvent("Status request"));
 					cerr << "Status request\n";
-				}
+				} break;
 				case WRITE: {
 					MinetSendToMonitor(MinetMonitoringEvent("Write request"));
-					cerr << "Write request for invalid connection\n";
-				}
+					cerr << "Write request\n";
+				} break;
 				case FORWARD: {
 					MinetSendToMonitor(MinetMonitoringEvent("Forward request"));
 					cerr << "Forward request\n";
-					//return 0 status, tcp ignores this socket connection
-				}
+				} break;
 				case CLOSE: {
 					MinetSendToMonitor(MinetMonitoringEvent("Close request"));
-					cerr << "Close request - error, invalid connection\n";
-					//send status with error code
-				}
-				default: {
-					MinetSendToMonitor(MinetMonitoringEvent("Not a valid request"));
-				}
-			}
-			else { //this is an open connection
-				switch (req.type) {
-					case CONNECT: {
-						MinetSendToMonitor(MinetMonitoringEvent("Connect request"));
-						cerr << "Cannot connect - connection already open\n";
-					}
-					case ACCEPT: {
-						MinetSendToMonitor(MinetMonitoringEvent("Accept request"));
-						cerr << "Accept request - connection already open\n";
-					}
-					case STATUS: {
-						MinetSendToMonitor(MinetMonitoringEvent("Status request"));
-						cerr << "Status request\n";
-					}
-					case WRITE: {
-						MinetSendToMonitor(MinetMonitoringEvent("Write request"));
-						cerr << "Write request\n";
-					}
-					case FORWARD: {
-						MinetSendToMonitor(MinetMonitoringEvent("Forward request"));
-						cerr << "Forward request\n";
-						//return 0 status, tcp ignores this socket connection
-					}
-					case CLOSE: {
-						MinetSendToMonitor(MinetMonitoringEvent("Close request"));
-						cerr << "Close request\n";
-					}
-					default: {
-						MinetSendToMonitor(MinetMonitoringEvent("Not a valid request"));
-					}
+					cerr << "Close request\n";
+				} break;
 			}
 	    }
 	    
@@ -279,7 +279,7 @@ int packet_send(const MinetHandle &handle, Packet &p) {
 	}
 	else {
 		return_val = MinetSend(handle, p);
-		cerr << "Packet sent";
+		cerr << "Packet sent\n";
 	}
 	return return_val;
 }
@@ -311,26 +311,27 @@ int packet_receive(const MinetHandle &handle, Packet &p) {
 	return return_val;
 }
 
-void make_packet(Packet &send_p, ConnectionToStateMapping<TCPState> &c, unsigned char flags, int data_size) {
+Packet make_packet(const Connection c, const unsigned int &seqnum, const unsigned int &acknum, unsigned char &flags, int data_size) {
 	cerr << "making a packet\n";
+	Packet send_p("", data_size);
 	IPHeader iph;
 	TCPHeader tcph;
 	
-	iph.SetSourceIP(c.connection.src);
-	iph.SetDestIP(c.connection.dest);
-	iph.SetTotalLength(data_size + IP_HEADER_BASE_LENGTH + TCP_HEADER_BASE_LENGTH);
 	iph.SetProtocol(IP_PROTO_TCP);
+	iph.SetSourceIP(c.src);
+	iph.SetDestIP(c.dest);
+	iph.SetTotalLength(IP_HEADER_BASE_LENGTH + TCP_HEADER_BASE_LENGTH);
 	send_p.PushFrontHeader(iph);
 
-	tcph.SetSourcePort(c.connection.src, send_p);
-	tcph.SetDestPort(c.connection.dest, send_p);
-	tcph.SetHeaderLen(TCP_HEADER_BASE_LENGTH, send_p);
+	tcph.SetSourcePort(c.srcport, send_p);
+	tcph.SetDestPort(c.destport, send_p);
+	tcph.SetHeaderLen(5, send_p);
 	tcph.SetFlags(flags, send_p);
-	tcph.SetAckNum(c.state.GetLastRecvd(), send_p);
-	tcph.SetSeqNum(c.state.GetLastAcked(), send_p);
-	tcph.SetWinSize(c.state.GetN(), send_p);
+	tcph.SetSeqNum(seqnum, send_p);
+	tcph.SetAckNum(acknum, send_p);
+	tcph.SetWinSize(14600, send_p);
 	tcph.SetUrgentPtr(0, send_p);
 	send_p.PushBackHeader(tcph);
 	cerr << "Made packet, returning...\n";
-	return;
+	return send_p;
 }

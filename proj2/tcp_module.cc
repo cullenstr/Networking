@@ -4,6 +4,7 @@
 // For project parts A and B, an appropriate binary will be 
 // copied over as part of the build process
 //#define DEBUGGING
+#define DEBUGGING1
 //Uncomment above line to see debugging statements
 
 #include <sys/time.h>
@@ -27,9 +28,11 @@
 
 using namespace std;
 
+int update_map_state(const TCPState state, unsigned int new_last_acked, int sent_size, int recv_size);
 Packet make_packet(const Connection c, const unsigned int &seqnum, const unsigned int &acknum, unsigned char &flags, int data_size);
 int packet_send(const MinetHandle &handle, Packet &p);
-int packet_receive(const MinetHandle &handle, Packet &p);
+int packet_receive(MinetHandle &handle, Packet &p);
+
 
 /*struct TCPState {
     // need to write this
@@ -82,15 +85,13 @@ int main(int argc, char * argv[]) {
     double timeout = 1000;
 	unsigned char flags=0;
 	unsigned char prev_flags;
-	unsigned int ack_num = 0;
-	unsigned int initial_seq_num = 0;
+	unsigned int ack_num=0;
+	unsigned int initial_seq_num=0;
+	unsigned short recv_datasize=0;
 	
 	unsigned int &aptr = ack_num;
 	unsigned char &fptr = flags;
 	unsigned int &sptr = initial_seq_num;
-	
-	//const IPAddress this_ip_addr = '192.168.160.9';
-	//const short this_port = 80;
 	
     while (MinetGetNextEvent(event, timeout) == 0) {
 	if ((event.eventtype == MinetEvent::Dataflow) && 
@@ -106,6 +107,8 @@ int main(int argc, char * argv[]) {
 			MinetReceive(mux,p);
 			p.ExtractHeaderFromPayload<TCPHeader>(TCPHeader::EstimateTCPHeaderLength(p));
 			
+			//extract connection information from headers
+			bool checksum_ok = false;
 			IPHeader iph;
 			iph=p.FindHeader(Headers::IPHeader);
 			TCPHeader tcph;
@@ -113,19 +116,27 @@ int main(int argc, char * argv[]) {
 			tcph.GetFlags(prev_flags);
 			tcph.GetSeqNum(aptr);
 	        tcph.GetAckNum(sptr);
-			
-			iph.GetDestIP(c.src); //fill out connection
+			iph.GetDestIP(c.src);
 			iph.GetSourceIP(c.dest);
 			tcph.GetDestPort(c.srcport);
 			tcph.GetSourcePort(c.destport);
 			c.protocol = IP_PROTO_TCP;
+			checksum_ok = tcph.IsCorrectChecksum(p);
+
+			
+			//get data
+			iph.GetTotalLength(recv_datasize);
+			recv_datasize = recv_datasize - (IP_HEADER_BASE_LENGTH + TCP_HEADER_BASE_LENGTH );
+			Buffer &recv_buffer = p.GetPayload().ExtractFront(recv_datasize);
+			recv_datasize = recv_buffer.GetSize();
+			cerr << "\nSize via buffer: " << recv_datasize;
+			
 			cerr << "TCPHeader: "<<tcph << "\n\n";
 			ConnectionList<TCPState>::iterator cs = clist.FindMatching(c);
-			if (initial_seq_num==0) //if not set yet
-				initial_seq_num = rand(); //placeholder.  How do we want to set our seq number?
-
-			#ifdef DEBUGGING
-	        cerr << "TCPHeader: "<<tcph << "\n\n";
+			
+			#ifdef DEBUGGING1
+	        //cerr << "TCPHeader: "<<tcph << "\n\n";
+	        cerr << "Connection last_sent " << cs->state.last_sent << "\n";
 			cerr << "Connection state " << cs->state.GetState() << "\n";
 			#endif
 			switch ((*cs).state.GetState()) 
@@ -137,7 +148,7 @@ int main(int argc, char * argv[]) {
 					{ //this is our syn request
 						cerr << "SYN request in a passive open state\n";
 						(*cs).state.SetState(SYN_RCVD);
-						(*cs).state.SetLastSent(initial_seq_num);
+						sptr=rand(); //this connection hasn't set a sequence number yet
 						flags=0;
 						SET_SYN(flags);
 						SET_ACK(flags);
@@ -145,9 +156,12 @@ int main(int argc, char * argv[]) {
 						//connection saved.  Now we send an syn_ack
 						cerr << "Set flags for syn-ack\n";
 						cerr << "Ready to make packet\n";
+						//make_packet( connection, seq, acknum, flags, datasize)
 						Packet send_p = make_packet(c, sptr, aptr+1, fptr, 0);
 						packet_send(mux, send_p);
 						(*cs).state.SetLastRecvd(aptr + 1);
+						//update_map_state( (*cs).state, sptr, 0, 0);
+						
 					} break;
 				}	
 				case SYN_RCVD: 
@@ -161,8 +175,9 @@ int main(int argc, char * argv[]) {
 						cerr << "connection state: established\n";
 						Buffer data;
 						data = p.GetPayload();
-						SockRequestResponse write(WRITE, (*cs).connection, data, 0, EOK); //send some data
+						SockRequestResponse write(WRITE, (*cs).connection, recv_buffer, 0, EOK); //send some data
 						MinetSend(sock, write);
+						//Packet send_p = make_packet(*cs, (*cs).state.GetLastSent()+1, aptr+1, fptr, data_buffer.GetSize());
 					} 
 					else if ((IS_SYN(prev_flags) && !IS_ACK(prev_flags)) || IS_RST(prev_flags))
 					{ //is there ever a case where this will happen
@@ -171,7 +186,7 @@ int main(int argc, char * argv[]) {
 						SET_ACK(flags);
 						Packet send_p = make_packet(c, sptr, aptr+1, fptr, 0);
 						packet_send(mux, send_p);
-						(*cs).state.SetLastRecvd(aptr+1);
+						//update_map_state( (*cs).state, sptr, 0, 0);
 					}
 					break;	
 				}
@@ -187,6 +202,7 @@ int main(int argc, char * argv[]) {
 						Packet send_p = make_packet(c, sptr, aptr+1, fptr, 0);
 						packet_send(mux, send_p);
 						(*cs).state.SetLastRecvd(aptr+1);
+						//update_map_state( (*cs).state, sptr, 0, 0);
 						//established, notify socket
 						cerr << "connection state: established\n";
 						Buffer data;
@@ -202,10 +218,9 @@ int main(int argc, char * argv[]) {
 						Packet send_p = make_packet(c, sptr, aptr+1, fptr, 0);
 						packet_send(mux, send_p);
 						(*cs).state.SetLastRecvd(aptr+1);
+						//update_map_state( (*cs).state, sptr, 0, 0);
 					} 
-					else {
-						cerr << "Did not recieve expected SYN ACK or SYN response";
-					}break;
+					break;
 				}
 				
 				case ESTABLISHED:
@@ -283,7 +298,6 @@ int main(int argc, char * argv[]) {
 				cerr << "Connect request : Active Open\n";
 				//active open, change state to SYN_SENT
 				int seq_num = rand();
-				//&sptr = seq_num;
 				TCPState new_state(seq_num, SYN_SENT, 1);
 				ConnectionToStateMapping<TCPState> new_mapping(req.connection, timeout, new_state, false);
 				//send status response immediately
@@ -301,7 +315,7 @@ int main(int argc, char * argv[]) {
 				packet_send( mux, send_p);
 				sleep(1);
 				packet_send(mux, send_p); //according to prof Lange, you need to send this twice.  
-				//I wasn't really clear on the reasoning, but it does seem to work
+				//beacuse minet drops the first initial packet
 				clist.push_back(new_mapping);
 				cs = clist.FindMatching(req.connection);
 				#ifdef DEBUGGING
@@ -336,7 +350,7 @@ int main(int argc, char * argv[]) {
 					else if(req.type==WRITE){
 						//send SYN
 						SET_SYN(flags);
-						Packet send_p = make_packet(req.connection, sptr, aptr+1, fptr, 0);
+						Packet send_p = make_packet(req.connection, (*cs).state.GetLastSent(), (*cs).state.GetLastAcked(), fptr, 0);
 						cerr << "Recieved SEND from LISTEN state";
 						
 					}
@@ -378,6 +392,16 @@ int main(int argc, char * argv[]) {
     MinetDeinit();
 
     return 0;
+}
+
+int update_map_state(TCPState state, unsigned int new_last_ack, int sent_size, int recv_size, unsigned int new_last_recvd) {
+	state.SetLastAcked(new_last_ack); //will be last ack we recieved
+	state.SetLastSent(sent_size+state.GetLastSent()); //last byte we sent
+	state.SetSendRwnd(state.GetRwnd()-recv_size); //our recieve window is our old window size - the data we added to the buffer
+	state.N = state.N - sent_size; //their recieve window
+	state.SetLastRecvd(state.GetLastRecvd()+recv_size);
+	cerr << "\nconnection state: " << state;
+	return 0;
 }
 
 //function to wrap MinetSend in order to simulate packet loss
@@ -451,15 +475,15 @@ Packet make_packet(const Connection c, const unsigned int &seqnum, const unsigne
 
 	tcph.SetSourcePort(c.srcport, send_p);
 	tcph.SetDestPort(c.destport, send_p);
-	tcph.SetHeaderLen(5, send_p); //isn't the header base length 20?  Why did we set to 5?
+	tcph.SetHeaderLen(5, send_p); 
 	tcph.SetFlags(flags, send_p);
 	tcph.SetSeqNum(seqnum, send_p);
 	tcph.SetAckNum(acknum, send_p);
-	tcph.SetWinSize(14600, send_p); //wont the window size change variably?
+	tcph.SetWinSize(14600, send_p);
 	tcph.SetUrgentPtr(0, send_p);
 	send_p.PushBackHeader(tcph);
-	#ifdef DEBUGGING
-	cerr << "Packet IP header " << iph << " TCP header " << tcph << "\n\n\n";
+	#ifdef DEBUGGING1
+	cerr << "Packet IP header " << iph << "\n TCP header " << tcph << "\n\n\n";
 	#endif
 	cerr << "Made packet, returning...\n";
 	return send_p;

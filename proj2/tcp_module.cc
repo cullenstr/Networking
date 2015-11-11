@@ -23,6 +23,7 @@
 #include <iostream>
 #include <string>
 #include <list> //needed for write record list
+#include <algorithm> //needed for min function.  Could live without
 
 #include "Minet.h"
 #include "tcpstate.h" //The provided one should work for now
@@ -89,7 +90,7 @@ int main(int argc, char * argv[]) {
 	srand(time(NULL));
 	
     MinetEvent event;
-    double timeout = 1000;
+    double timeout = 5;
 	unsigned char flags=0;
 	unsigned char prev_flags;
 	unsigned int ack_num=0;
@@ -199,7 +200,7 @@ int main(int argc, char * argv[]) {
 						Packet send_p = make_packet(c, sptr, aptr+recv_datasize+1, fptr, 0, ebptr);
 						packet_send(mux, send_p);
 						(*cs).state.SetLastRecvd(aptr+recv_datasize);
-						(*cs).state.SetLastAcked(sptr+1);
+						(*cs).state.SetLastAcked(sptr);
 						//if we recieved data, need to handle that
 						if(recv_datasize>0) {
 							cerr << "We recieved data!";
@@ -218,7 +219,7 @@ int main(int argc, char * argv[]) {
 						Packet send_p = make_packet(c, sptr, aptr+1, fptr, 0, ebptr);
 						packet_send(mux, send_p);
 						(*cs).state.SetLastRecvd(aptr);
-						(*cs).state.SetLastAcked(sptr+1);
+						(*cs).state.SetLastAcked(sptr);
 					}
 					break;	
 				}
@@ -254,7 +255,7 @@ int main(int argc, char * argv[]) {
 						Packet send_p = make_packet(c, sptr, aptr+1, fptr, 0, ebptr);
 						packet_send(mux, send_p);
 						(*cs).state.SetLastRecvd(aptr);
-						(*cs).state.SetLastAcked(sptr+1);
+						(*cs).state.SetLastAcked(aptr+1);
 					} 
 					break;
 				}
@@ -272,25 +273,25 @@ int main(int argc, char * argv[]) {
 							(*cs).state.SendBuffer.Erase(0, send_remove);
 							(*cs).state.N+=send_remove;
 						}
-						//add data to packet
-						int send_datasize=0;
 						unsigned short r_windowsize;
 						tcph.GetWinSize(r_windowsize);
+						//add data to packet
+						int send_datasize=0;
 						Buffer send_buffer;
 						send_buffer.Clear();
-						if ((*cs).state.N>0) { //figure out how much data we can send
-							if (r_windowsize<TCP_MAXIMUM_SEGMENT_SIZE && r_windowsize<(*cs).state.N)
-								send_datasize = r_windowsize;
-							else if ((*cs).state.N>TCP_MAXIMUM_SEGMENT_SIZE)
+						if ((*cs).state.SendBuffer.GetSize()>0) { //figure out how much data we can send
+							if (r_windowsize<TCP_MAXIMUM_SEGMENT_SIZE && r_windowsize<(*cs).state.SendBuffer.GetSize()) //if the recieve window is smaller than the data we have
+								send_datasize = (*cs).state.GetRwnd(); 
+							else if (r_windowsize>TCP_MAXIMUM_SEGMENT_SIZE && (*cs).state.SendBuffer.GetSize()>TCP_MAXIMUM_SEGMENT_SIZE)
 								send_datasize = TCP_MAXIMUM_SEGMENT_SIZE;
 							else  //send entire send buffer
-								send_datasize = (*cs).state.N;
+								send_datasize = min(r_windowsize, (*cs).state.SendBuffer.GetSize());
 							send_buffer = (*cs).state.SendBuffer.ExtractFront(send_datasize);	
 						}
 						//update state
+						(*cs).state.SetSendRwnd((*cs).state.GetRwnd()-recv_datasize);
 						(*cs).state.SetLastAcked(sptr); //the last ack we recieved
 						(*cs).state.SetLastSent(send_datasize+(*cs).state.GetLastSent()); //last byte we sent
-						(*cs).state.SetSendRwnd((*cs).state.GetRwnd()-recv_datasize);
 						(*cs).state.SetLastRecvd((*cs).state.GetLastRecvd()+recv_datasize);
 						//send packet
 						Packet send_p = make_packet(c, sptr, aptr+recv_datasize+1, fptr, send_datasize, send_buffer);	
@@ -305,7 +306,7 @@ int main(int argc, char * argv[]) {
 							//send WRITE SockRequestResponse
 							SockRequestResponse write(WRITE, (*cs).connection, recv_buffer, recv_datasize, EOK);
 							MinetSend(sock, write);
-						}*/
+						}
 					}
 					else if(!checksum_ok || (*cs).state.GetRwnd()<recv_datasize) { //corrupt packet, we don't have buffer space or not stop and wait
 						cerr << "Invalid packet, sending duplicate ack";
@@ -369,7 +370,7 @@ int main(int argc, char * argv[]) {
 			SockRequestResponse req;
 			SockRequestResponse response;
 			MinetReceive(sock,req);
-			cerr << "Socket request has arrived...req.type is " << req.type << "\n";
+			cerr << "\nSocket request has arrived...req.type is " << req.type << "\n";
 			ConnectionList<TCPState>::iterator cs = clist.FindMatching(req.connection);
 			ConnectionToStateMapping<TCPState> c_mapping;
 			unsigned char flags = 0;
@@ -464,15 +465,16 @@ int main(int argc, char * argv[]) {
 								MinetSend(sock, status);
 							}
 							(*cs).state.SendBuffer.AddBack(new_buff);
+							cerr << "Our send buffer: " << (*cs).state.SendBuffer;
 						}
 					}
 					if(req.type==STATUS){
-						cerr << "status request in established state";
+						cerr << "status request in established state with byte size" << req.bytes << "\n";
 						list<write_record>:: iterator wr_it;
 						bool exit=false;
-						for(wr_it = wr_list.begin(); exit==false && wr_it!=wr_list.end(); wr_it++)
+						for(wr_it = wr_list.begin(); exit==false && wr_it!=wr_list.end() && req.bytes!=0; wr_it++) //want to exclude non-write response status requests
 						{
-							if((*wr_it).connection.Matches(req.connection)) { //can we use == to compare connections?
+							if((*wr_it).connection.Matches(req.connection)) { 
 								exit=true;
 								if((*wr_it).size_total == req.bytes) { //all of the data we sent to the socket was accepted 
 									(*cs).state.rwnd+=(*wr_it).size_total;
@@ -487,7 +489,7 @@ int main(int argc, char * argv[]) {
 									wr_list.push_back(*wr_it); //move to the back of the list
 									wr_list.erase(wr_it);
 								}
-							 }
+							}
 						}
 					}
 					if(req.type==CLOSE){
@@ -513,7 +515,33 @@ int main(int argc, char * argv[]) {
 
 	if (event.eventtype == MinetEvent::Timeout) {
 	    // timeout ! probably need to resend some packets
-	    cerr << "Timeout!\n";
+	    //cerr << "Timeout!\n";
+		ConnectionList<TCPState>::iterator cs;
+		unsigned int send_datasize;
+		Buffer send_buffer;
+		for(cs = clist.begin(); cs!=clist.end(); cs++) {
+			//cerr << "Initial Connection last_sent " << (*cs).state.last_sent << " last acked " << (*cs).state.last_acked << " last recieved " << (*cs).state.last_recvd << "\n";
+			/*if ((*cs).state == CLOSED) { //if has timed out and state is closed
+				clist.Erase(cs); //remove the connection
+			}*/
+			if ((*cs).state.SendBuffer.GetSize()>0) { //if we have data to send and timed out
+				//first check that this connection has timed out (still need to write timeout handling)
+				//resend earliest unacked packet
+				if ((*cs).state.SendBuffer.GetSize()>0) { //figure out how much data we can send: if we have data
+					if ((*cs).state.SendBuffer.GetSize()>TCP_MAXIMUM_SEGMENT_SIZE)
+						send_datasize = TCP_MAXIMUM_SEGMENT_SIZE;
+					else  //send whole buffer
+						send_datasize = (*cs).state.SendBuffer.GetSize());
+					send_buffer = (*cs).state.SendBuffer.ExtractFront(send_datasize);	
+					cerr << "We're sending this buffer: " << send_buffer;
+				}
+				//don't need to update state, probably need to reset timeout
+				//send packet
+				SET_ACK(flags);
+				Packet send_p = make_packet((*cs).connection, (*cs).state.GetLastAcked()+send_datasize, (*cs).state.GetLastRecvd()+1, flags, send_datasize, send_buffer);	
+				packet_send(mux, send_p);
+			}
+		}
 	}
 
     }
@@ -523,16 +551,7 @@ int main(int argc, char * argv[]) {
     return 0;
 }
 
-/* Don't think we need this function after all.  Except in the established case, we usually only have to update one or two of these
-int update_map_state(TCPState state, unsigned int new_last_ack, int sent_size, int recv_size, unsigned int new_last_recvd) {
-	state.SetLastAcked(new_last_ack); //will be last ack we recieved
-	state.SetLastSent(sent_size+state.GetLastSent()); //last byte we sent
-	state.SetSendRwnd(state.GetRwnd()-recv_size); //our recieve window is our old window size - the data we added to the buffer
-	state.N = state.N - sent_size; //our send window
-	state.SetLastRecvd(state.GetLastRecvd()+recv_size);
-	cerr << "\nconnection state: " << state;
-	return 0;
-}*/ 
+ 
 
 //function to wrap MinetSend in order to simulate packet loss
 //still need to implement: reordering
@@ -614,7 +633,11 @@ Packet make_packet(const Connection c, const unsigned int &seqnum, const unsigne
 	tcph.SetUrgentPtr(0, send_p);
 	send_p.PushBackHeader(tcph);
 	#ifdef DEBUGGING1
-	cerr << "Packet IP header " << iph << "\n TCP header " << tcph << "\n\n\n";
+	unsigned short recv_datasize = 0;
+	recv_datasize = recv_datasize - (TCP_HEADER_BASE_LENGTH + IP_HEADER_BASE_LENGTH);
+	Buffer &recv_buffer = send_p.GetPayload().ExtractFront(recv_datasize);
+	cerr << "Packet IP header " << iph << "\n TCP header " << tcph;
+	cerr << "\n Buffer: " << recv_buffer << "\n\n\n";
 	#endif
 	cerr << "Made packet, returning...\n";
 	return send_p;

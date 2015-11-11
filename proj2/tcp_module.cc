@@ -136,8 +136,15 @@ int main(int argc, char * argv[]) {
 
 			
 			//get data
+			unsigned char iph_len;
+			unsigned char tcph_len;
 			iph.GetTotalLength(recv_datasize);
-			recv_datasize = recv_datasize - (IP_HEADER_BASE_LENGTH + TCP_HEADER_BASE_LENGTH );
+			iph.GetHeaderLength(iph_len);
+			tcph.GetHeaderLen(tcph_len);
+			iph_len<<=2;
+			tcph_len<<=2;
+			cerr << "ip length " << iph_len << " tcp length " << tcph_len;
+			recv_datasize = recv_datasize - (tcph_len + iph_len);
 			Buffer &recv_buffer = p.GetPayload().ExtractFront(recv_datasize);
 			recv_datasize = recv_buffer.GetSize();
 			cerr << "\nSize via buffer: " << recv_datasize;
@@ -147,7 +154,7 @@ int main(int argc, char * argv[]) {
 			
 			#ifdef DEBUGGING1
 	        //cerr << "TCPHeader: "<<tcph << "\n\n";
-	        cerr << "Connection last_sent " << cs->state.last_sent << "\n";
+	        cerr << "Connection last_sent " << cs->state.last_sent << " last acked " << cs->state.last_acked << " last recieved " << cs->state.last_recvd << "\n";
 			cerr << "Connection state " << cs->state.GetState() << "\n";
 			#endif
 			switch ((*cs).state.GetState()) 
@@ -170,8 +177,9 @@ int main(int argc, char * argv[]) {
 						//make_packet( connection, seq, acknum, flags, datasize)
 						Packet send_p = make_packet(c, sptr, aptr+1, fptr, 0, ebptr);
 						packet_send(mux, send_p);
+						(*cs).state.SetLastSent(sptr);
+						(*cs).state.SetLastAcked(sptr);
 						(*cs).state.SetLastRecvd(aptr + 1);
-						//update_map_state( (*cs).state, sptr, 0, 0);
 						
 					} break;
 				}	
@@ -188,11 +196,13 @@ int main(int argc, char * argv[]) {
 						MinetSend(sock, write);
 						//we won't have any data to write yet, but we should ack the packet
 						SET_ACK(flags);
-						Packet send_p = make_packet(c, sptr, aptr+recv_datasize, fptr, 0, ebptr);
+						Packet send_p = make_packet(c, sptr, aptr+recv_datasize+1, fptr, 0, ebptr);
 						packet_send(mux, send_p);
 						(*cs).state.SetLastRecvd(aptr+recv_datasize);
+						(*cs).state.SetLastAcked(sptr+1);
 						//if we recieved data, need to handle that
 						if(recv_datasize>0) {
+							cerr << "We recieved data!";
 							(*cs).state.RecvBuffer.AddBack(recv_buffer);
 							write_record new_wr {c, recv_buffer, recv_datasize};
 							wr_list.push_back(new_wr);
@@ -207,7 +217,8 @@ int main(int argc, char * argv[]) {
 						SET_ACK(flags);
 						Packet send_p = make_packet(c, sptr, aptr+1, fptr, 0, ebptr);
 						packet_send(mux, send_p);
-						//update_map_state( (*cs).state, sptr, 0, 0);
+						(*cs).state.SetLastRecvd(aptr);
+						(*cs).state.SetLastAcked(sptr+1);
 					}
 					break;	
 				}
@@ -223,7 +234,7 @@ int main(int argc, char * argv[]) {
 						MinetSend(sock, write);
 						//we won't have any data to write yet, but we should ack the packet
 						SET_ACK(flags);
-						Packet send_p = make_packet(c, sptr, aptr+recv_datasize, fptr, 0, ebptr);
+						Packet send_p = make_packet(c, sptr, aptr+recv_datasize+1, fptr, 0, ebptr);
 						packet_send(mux, send_p);
 						(*cs).state.SetLastRecvd(aptr+recv_datasize);
 						//if we recieved data, need to handle that
@@ -242,8 +253,8 @@ int main(int argc, char * argv[]) {
 						SET_ACK(flags);
 						Packet send_p = make_packet(c, sptr, aptr+1, fptr, 0, ebptr);
 						packet_send(mux, send_p);
-						(*cs).state.SetLastRecvd(aptr+1);
-						//update_map_state( (*cs).state, sptr, 0, 0);
+						(*cs).state.SetLastRecvd(aptr);
+						(*cs).state.SetLastAcked(sptr+1);
 					} 
 					break;
 				}
@@ -252,6 +263,7 @@ int main(int argc, char * argv[]) {
 				{	cerr << "connection state: established\n";
 					SET_ACK(flags);
 					if(checksum_ok && (*cs).state.GetRwnd()>recv_datasize) {
+						cerr << "Valid packet \n";
 						//for now we'll only accept data if we can accept the whole packet to simplify things
 						if (aptr==(*cs).state.GetLastSent()+1) { //if this isn't a duplicate ack, we can remove data from the send buffer
 							//remove acked data from send buffer
@@ -276,12 +288,12 @@ int main(int argc, char * argv[]) {
 							send_buffer = (*cs).state.SendBuffer.ExtractFront(send_datasize);	
 						}
 						//update state
-						(*cs).state.SetLastAcked(sptr);
+						(*cs).state.SetLastAcked(sptr); //the last ack we recieved
 						(*cs).state.SetLastSent(send_datasize+(*cs).state.GetLastSent()); //last byte we sent
 						(*cs).state.SetSendRwnd((*cs).state.GetRwnd()-recv_datasize);
 						(*cs).state.SetLastRecvd((*cs).state.GetLastRecvd()+recv_datasize);
 						//send packet
-						Packet send_p = make_packet(c, sptr, aptr+recv_datasize, fptr, send_datasize, send_buffer);	
+						Packet send_p = make_packet(c, sptr, aptr+recv_datasize+1, fptr, send_datasize, send_buffer);	
 						packet_send(mux, send_p);
 						//only want to do recieve operations if we have recieved data
 						if(recv_datasize>0) {
@@ -293,9 +305,10 @@ int main(int argc, char * argv[]) {
 							//send WRITE SockRequestResponse
 							SockRequestResponse write(WRITE, (*cs).connection, recv_buffer, recv_datasize, EOK);
 							MinetSend(sock, write);
-						}
+						}*/
 					}
 					else if(!checksum_ok || (*cs).state.GetRwnd()<recv_datasize) { //corrupt packet, we don't have buffer space or not stop and wait
+						cerr << "Invalid packet, sending duplicate ack";
 						Packet send_p = make_packet(c, sptr, (*cs).state.GetLastAcked(), fptr, 0, ebptr); //send duplicate ack
 						packet_send(mux, send_p);
 					}
@@ -353,11 +366,10 @@ int main(int argc, char * argv[]) {
 
 	    if (event.handle == sock) {
 		// socket request or response has arrived
-			cerr << "Socket request has arrived...\n";
-			
 			SockRequestResponse req;
 			SockRequestResponse response;
 			MinetReceive(sock,req);
+			cerr << "Socket request has arrived...req.type is " << req.type << "\n";
 			ConnectionList<TCPState>::iterator cs = clist.FindMatching(req.connection);
 			ConnectionToStateMapping<TCPState> c_mapping;
 			unsigned char flags = 0;
@@ -375,7 +387,7 @@ int main(int argc, char * argv[]) {
 				//make a SYN packet
 				flags = 0;
 				SET_SYN(flags);
-				Packet send_p = make_packet(req.connection, sptr, aptr+1, flags, 0, ebptr);
+				Packet send_p = make_packet(req.connection, seq_num, 0, flags, 0, ebptr);
 				//send SYN packet
 				packet_send( mux, send_p);
 				sleep(1);
@@ -420,7 +432,9 @@ int main(int argc, char * argv[]) {
 						//send SYN
 						SET_SYN(flags);
 						Packet send_p = make_packet(req.connection, (*cs).state.GetLastSent(), (*cs).state.GetLastAcked(), fptr, 0, ebptr);
+						packet_send(mux, send_p);
 						cerr << "Recieved SEND from LISTEN state";
+						
 						
 					}
 				} break;
@@ -429,6 +443,7 @@ int main(int argc, char * argv[]) {
 				
 				case ESTABLISHED: {
 					if(req.type==WRITE){
+						cerr << "write request in established state";
 						//socket is sending us information to put into the send buffer
 						//if send buffer is full, send EBUFSPACE
 						if( (*cs).state.N==0 ) {
@@ -452,6 +467,7 @@ int main(int argc, char * argv[]) {
 						}
 					}
 					if(req.type==STATUS){
+						cerr << "status request in established state";
 						list<write_record>:: iterator wr_it;
 						bool exit=false;
 						for(wr_it = wr_list.begin(); exit==false && wr_it!=wr_list.end(); wr_it++)
@@ -477,7 +493,7 @@ int main(int argc, char * argv[]) {
 					if(req.type==CLOSE){
 						//send FIN
 						SET_FIN(flags);
-						Packet send_p = make_packet(req.connection, sptr, aptr+1, fptr, 0, ebptr);
+						//Packet send_p = make_packet(req.connection, sptr, aptr+1, fptr, 0, ebptr); //needs edit -> can't use sptr, fptr or aptr in sock section (not set)
 					}
 				} break;
 				
@@ -488,7 +504,7 @@ int main(int argc, char * argv[]) {
 					if(req.type==CLOSE){
 						//send FIN
 						SET_FIN(flags);
-						Packet send_p = make_packet(req.connection, sptr, aptr+1, fptr, 0, ebptr);
+						//Packet send_p = make_packet(req.connection, sptr, aptr+1, fptr, 0, ebptr); //needs edit -> can't use sptr or aptr in sock section (not set)
 					}
 				} break;
 			}
@@ -497,6 +513,7 @@ int main(int argc, char * argv[]) {
 
 	if (event.eventtype == MinetEvent::Timeout) {
 	    // timeout ! probably need to resend some packets
+	    cerr << "Timeout!\n";
 	}
 
     }

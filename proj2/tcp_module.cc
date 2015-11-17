@@ -144,14 +144,17 @@ int main(int argc, char * argv[]) {
 			tcph.GetHeaderLen(tcph_len);
 			iph_len<<=2;
 			tcph_len<<=2;
+			cerr << "ip length " << iph_len << " tcp length " << tcph_len;
 			recv_datasize = recv_datasize - (tcph_len + iph_len);
 			Buffer &recv_buffer = p.GetPayload().ExtractFront(recv_datasize);
 			recv_datasize = recv_buffer.GetSize();
 			ConnectionList<TCPState>::iterator cs = clist.FindMatching(c);
 			
 			#ifdef DEBUGGING1
-			cerr << "\nSize via buffer: " << recv_datasize;
-			cerr << "\nTCPHeader: "<<tcph << "\n\n";
+			cerr<<"\n\n===================RCVD PACKET INFO=============";
+			cerr << "\n***Packet IP header*** " << iph << "\n\n***TCP header*** " << tcph;
+			cerr << "\n\n***Buffer*** " << recv_buffer << "\n";
+			cerr<<"=====================END RCVD PACKET INFO===========\n\n";
 	        cerr << "Connection last_sent " << cs->state.last_sent << " last acked " << cs->state.last_acked << " last recieved " << cs->state.last_recvd << "\n";
 			cerr << "Connection state " << cs->state.GetState() << "\n";
 			#endif
@@ -164,8 +167,6 @@ int main(int argc, char * argv[]) {
 					{ //this is our syn request
 						cerr << "SYN request in a passive open state\n";
 						(*cs).state.SetState(SYN_RCVD);
-						(*cs).state.SetSendRwnd(14600);
-						cerr << "our window size is " << (*cs).state.GetRwnd();
 						sptr=rand(); //this connection hasn't set a sequence number yet
 						flags = 0;
 						SET_SYN(flags);
@@ -174,12 +175,12 @@ int main(int argc, char * argv[]) {
 						//connection saved.  Now we send an syn_ack
 						cerr << "Set flags for syn-ack\n";
 						cerr << "Ready to make packet\n";
+						//make_packet( connection, seq, acknum, flags, datasize)
+						Packet send_p = make_packet(c, sptr, aptr+1, fptr, 0, ebptr, (*cs).state.GetRwnd());
+						packet_send(mux, send_p);
 						(*cs).state.SetLastSent(sptr);
 						(*cs).state.SetLastAcked(sptr);
-						(*cs).state.SetLastRecvd(aptr);
-						Packet send_p = make_packet(c, (*cs).state.GetLastSent(), (*cs).state.GetLastRecvd()+1, fptr, 0, ebptr, (*cs).state.GetRwnd());
-						packet_send(mux, send_p);
-						
+						(*cs).state.SetLastRecvd(aptr + 1);
 					}
 				} break;
 				case SYN_RCVD: 
@@ -188,16 +189,13 @@ int main(int argc, char * argv[]) {
 					{
 						//set state to established
 						cerr << "ESTABLISHED\n";
-						(*cs).timeout = Time()+80;
-						(*cs).state.SetSendRwnd(14600);
 						(*cs).state.SetState(ESTABLISHED);
-						(*cs).state.SetLastRecvd(aptr);
 						//notify socket
-						cerr << "transition to connection state: established\n";
-						SockRequestResponse write(WRITE, (*cs).connection, ebptr, 0, EOK); //notify socket connection established
-						MinetSend(sock, write);
+						cerr << "connection state: established\n";
 						
-						/*//we won't have any data to write yet, but we should ack the packet
+						/*SockRequestResponse write(WRITE, (*cs).connection, ebptr, 0, EOK); //notify socket connection established
+						MinetSend(sock, write);
+						//we won't have any data to write yet, but we should ack the packet
 						SET_ACK(flags);
 						Packet send_p = make_packet(c, sptr, aptr+recv_datasize+1, fptr, 0, ebptr);
 						packet_send(mux, send_p);
@@ -219,12 +217,10 @@ int main(int argc, char * argv[]) {
 						cerr << "SEND SYNACK AGAIN\n";    
 						SET_SYN(flags);
 						SET_ACK(flags);
-						(*cs).state.SetSendRwnd(14600);
+						Packet send_p = make_packet(c, sptr, aptr+1, fptr, 0, ebptr, (*cs).state.GetRwnd());
+						packet_send(mux, send_p);
 						(*cs).state.SetLastRecvd(aptr);
 						(*cs).state.SetLastAcked(sptr);
-						(*cs).state.SetLastSent((*cs).state.GetLastSent()+1); //increment our sequence number, sending a syn
-						Packet send_p = make_packet(c, (*cs).state.GetLastSent(), (*cs).state.GetLastRecvd()+1, fptr, 0, ebptr, (*cs).state.GetRwnd());
-						packet_send(mux, send_p);
 					}
 				} break;
 				case SYN_SENT:
@@ -234,30 +230,34 @@ int main(int argc, char * argv[]) {
 						cerr << "recieved SYN ACK, send ACK";
 						//transition to established
 						(*cs).state.SetState(ESTABLISHED);
-						(*cs).state.SetSendRwnd(14600);
-						cerr << "transition to connection state: established\n";
+						cerr << "connection state: established\n";
+						//we won't have any data to write yet, but we should ack the packet
 						SET_ACK(flags);
-						(*cs).state.SetLastRecvd(aptr);
-						(*cs).state.SetLastAcked(sptr);
-						(*cs).state.SetLastSent(sptr); //don't increment sequence number, not sending ack or data
-						Packet send_p = make_packet(c, (*cs).state.GetLastSent(), (*cs).state.GetLastRecvd()+1, fptr, 0, ebptr, (*cs).state.GetRwnd());
-						packet_send(mux, send_p);
-						
 						SockRequestResponse write(WRITE, (*cs).connection, ebptr, 0, EOK); //notify socket connection established
 						MinetSend(sock, write);
+						(*cs).state.SetLastRecvd(aptr+1);
+						
+						Packet send_p = make_packet(c, sptr, aptr+recv_datasize+1, fptr, 0, ebptr, (*cs).state.GetRwnd());
+						packet_send(mux, send_p);
+						/*
+						//if we recieved data, need to handle that
+						if(recv_datasize>0) {
+							(*cs).state.RecvBuffer.AddBack(recv_buffer);
+							write_record new_wr {c, recv_buffer, recv_datasize};
+							wr_list.push_back(new_wr);
+							SockRequestResponse write(WRITE, (*cs).connection, recv_buffer, recv_datasize, EOK);
+							MinetSend(sock, write);
+						}*/
 					}
 					else if (IS_SYN(prev_flags) && !IS_ACK(prev_flags)) { //should be passive open
 						//transition to SYN_RCVD
 						(*cs).state.SetState(SYN_RCVD);
-						(*cs).state.SetSendRwnd(14600);
 						//send ack
 						SET_ACK(flags);
 						SET_SYN(flags);
-						(*cs).state.SetLastRecvd(aptr);
-						(*cs).state.SetLastAcked(sptr);
-						(*cs).state.SetLastSent(sptr+1); //sending SYN increment sequence number
-						Packet send_p = make_packet(c, (*cs).state.GetLastSent(), (*cs).state.GetLastRecvd()+1, fptr, 0, ebptr, (*cs).state.GetRwnd());
+						Packet send_p = make_packet(c, sptr, aptr+1, fptr, 0, ebptr, (*cs).state.GetRwnd());
 						packet_send(mux, send_p);
+						(*cs).state.SetLastAcked(aptr+1);
 					} 
 				} break;
 				case ESTABLISHED: //NEEDS SOME WORK! /*possible scenarios: IS_FIN is set, IS_RST is set, or data packet is rcvd */
@@ -266,13 +266,28 @@ int main(int argc, char * argv[]) {
 					cerr << "is fin: " << IS_FIN(prev_flags) << " is rst " << IS_RST(prev_flags) << " checksum okay?" << checksum_ok;
 					if (!IS_FIN(prev_flags) && !IS_RST(prev_flags) && checksum_ok) //rcvd data packet
 					{
-						cerr << "\n***DATA BUFFER***\n" << recv_buffer << "\n***END BUFFER***\n\n";
-						//if this is an ack packet, send data if we have it
-						int send_datasize=0;
-						Buffer send_buffer;
-						send_buffer.Clear();
-						if (IS_ACK(prev_flags)) 
+						if (IS_PSH(prev_flags))
 						{
+							if(recv_datasize>0) {
+								(*cs).state.RecvBuffer.AddBack(recv_buffer);
+								write_record new_wr {c, recv_buffer, recv_datasize};
+								wr_list.push_back(new_wr);
+								SockRequestResponse write(WRITE, (*cs).connection, recv_buffer, recv_datasize, EOK);
+								MinetSend(sock, write);
+							}
+							
+							SET_ACK(flags);
+							Packet send_p = make_packet(c, sptr, aptr+recv_datasize, fptr, 0, ebptr, 14600);
+							(*cs).state.SetLastRecvd(aptr + recv_datasize);
+							packet_send(mux, send_p);
+						}
+						
+						else if (IS_ACK(prev_flags)) 
+						{
+							//if this is an ack packet, send data if we have it
+							int send_datasize=0;
+							Buffer send_buffer;
+							send_buffer.Clear();
 							if (aptr==(*cs).state.GetLastSent()+1) { //if this isn't a duplicate ack, we can remove data from the send buffer
 								//remove acked data from send buffer
 								int send_remove=0;
@@ -292,18 +307,20 @@ int main(int argc, char * argv[]) {
 									send_datasize = min((size_t)r_windowsize, (*cs).state.SendBuffer.GetSize());
 								send_buffer = (*cs).state.SendBuffer.ExtractFront(send_datasize);	
 							}
-							cerr << "\nsetting last acked to : " << sptr << "setting last sent to : " << (send_datasize+(*cs).state.GetLastSent());
+							cerr << "\nsetting last acked to: " << sptr << "\nsetting last sent to: " << (send_datasize+(*cs).state.GetLastSent()) << endl;
 							(*cs).state.SetLastRecvd(aptr);
 							(*cs).state.SetLastAcked(sptr); //the last ack we recieved
 							(*cs).state.SetLastSent(send_datasize+(*cs).state.GetLastSent()); //last byte we sent
 						}
+						
+						/*
 						//if we recieved data, need to handle that
 						bool duplicate_packet = false;
 						if (aptr+recv_datasize == (*cs).state.GetLastRecvd()) {
 							duplicate_packet = true;
 							cerr << "duplicate packet\n";
 						}
-						cerr << "recv datasize is " << recv_datasize << " duplicate packet is " << duplicate_packet << " recieve window " << (*cs).state.GetRwnd();
+						cerr << "recv datasize is " << recv_datasize << "\nduplicate packet is " << duplicate_packet << "\nreceive window " << (*cs).state.GetRwnd() << endl;
 						if(recv_datasize>0 && (*cs).state.GetRwnd()>recv_datasize && duplicate_packet==false) {
 							cerr << "entered recieve data if statement";
 							(*cs).state.SetLastRecvd((*cs).state.GetLastRecvd()+recv_datasize);
@@ -318,23 +335,39 @@ int main(int argc, char * argv[]) {
 							packet_send(mux, send_p);
 						}
 						//if packet is invalid, a duplicate or corupted, ignore? Or send duplicate ack?
+						*/
 					}
 					else if (IS_FIN(prev_flags))
 					{
-						cerr << "\n...FIN FOUND... closing connection\n\n";
+						cerr<< "\n\n...FIN FOUND... sending ack\n";
 						(*cs).state.SetState(CLOSE_WAIT);
 						SET_ACK(flags);
 						Packet send_p = make_packet(c, sptr, aptr+1, fptr, 0, ebptr, (*cs).state.GetRwnd());
 						packet_send(mux, send_p);
-						SockRequestResponse close(CLOSE, (*cs).connection, recv_buffer, 14600, EOK); 
-						MinetSend(sock, close);
 						(*cs).state.SetLastRecvd(aptr+1);
 					}
+				} break;
+				case CLOSE_WAIT:
+				{
+					cerr<<"\nIN CLOSE WAIT\n";
+					cerr<<"sending fin, transitioning to LAST_ACK\n";
+					(*cs).state.SetState(LAST_ACK);
+					SET_FIN(flags);
+					Packet send_p = make_packet(c, sptr, aptr+1, fptr, 0, ebptr, (*cs).state.GetRwnd());
+					packet_send(mux, send_p);
+					
+					/* 
+						//SET_RST(flags);
+						//(*cs).state.SetState(LISTEN);
+						
+						'cheap' way to close connection, and allows another nc without having to restart minet
+						I'm not sure if we can actually test that the connection is closing properly while only using nc, even if logic is correct
+					*/
 				} break;
 				case FIN_WAIT1:
 				{
 					cerr << "connection state: FIN_WAIT1\n";
-					//recieve ACK, transition to FIN_WAIT2
+					//if recieved ACK, transition to FIN_WAIT2
 					if(IS_ACK(prev_flags) && !IS_PSH(prev_flags)) {
 						cerr << "transitioning to FIN_WAIT2\n";
 						(*cs).state.SetState(FIN_WAIT2);
@@ -456,7 +489,7 @@ int main(int argc, char * argv[]) {
 				
 				case ESTABLISHED: {
 					if(req.type==WRITE){
-						cerr << "write request in established state";
+						cerr << "write request in established state\n";
 						//socket is sending us information to put into the send buffer
 						//if send buffer is full, send EBUFSPACE
 						if( (*cs).state.N==0 ) {
@@ -479,11 +512,11 @@ int main(int argc, char * argv[]) {
 								MinetSend(sock, status);
 							}
 							(*cs).state.SendBuffer.AddBack(new_buff);
-							cerr << "Our send buffer: " << (*cs).state.SendBuffer;
+							cerr << "Our send buffer: " << (*cs).state.SendBuffer << endl;
 						}
 					}
 					if(req.type==STATUS){
-						cerr << "status request in established state with byte size" << req.bytes << "\n";
+						cerr << "status request in established state with byte size: " << req.bytes << "\n";
 						list<write_record>:: iterator wr_it;
 						bool exit=false;
 						if (req.bytes!=0) {	//want to exclude non-write response status requests
@@ -523,10 +556,17 @@ int main(int argc, char * argv[]) {
 					if(req.type==CLOSE){
 						//send FIN
 						SET_FIN(flags);
-						//Packet send_p = make_packet(req.connection, sptr, aptr+1, fptr, 0, ebptr, (*cs).state.GetRwnd()); //needs edit -> can't use sptr or aptr in sock section (not set)
+						sptr = c_mapping.state.GetLastSent();
+						sptr++;
+						(*cs).state.SetLastSent(sptr);
+						aptr = c_mapping.state.GetLastRecvd();
+						(*cs).state.SetLastRecvd(aptr);
+						Packet send_p = make_packet(req.connection, sptr, aptr+1, fptr, 0, ebptr, (*cs).state.GetRwnd()); //needs edit -> can't use sptr or aptr in sock section (not set)
+						packet_send( mux, send_p);
 					}
 				} break;
-			}
+				
+			}//END TCPState switch
 	    } //ENDIF event.handle == sock
 	}
 
@@ -654,8 +694,10 @@ Packet make_packet(const Connection c, const unsigned int &seqnum, const unsigne
 	unsigned short recv_datasize = 0;
 	recv_datasize = recv_datasize - (TCP_HEADER_BASE_LENGTH + IP_HEADER_BASE_LENGTH);
 	Buffer &recv_buffer = send_p.GetPayload().ExtractFront(recv_datasize);
-	cerr << "Packet IP header " << iph << "\n TCP header " << tcph;
-	cerr << "\n Buffer: " << recv_buffer << "\n\n\n";
+	cerr<<"\n\n===================SEND PACKET INFO=============";
+	cerr << "\n***Packet IP header*** " << iph << "\n\n***TCP header*** " << tcph;
+	cerr << "\n\n***Buffer*** " << recv_buffer << "\n";
+	cerr<<"=====================END SEND PACKET INFO===========\n\n";
 	#endif
 	cerr << "Made packet, returning...\n";
 	return send_p;

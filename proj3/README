@@ -1,0 +1,15 @@
+README - CS 1652 - Project 3
+
+Group members
+Lauren Thomson, let41, let41@pitt.edu
+Cullen Strouse, cls161, cls161@pitt.edu
+
+Included files
+distancevector.cc
+distancevector.h
+linkstate.cc
+linkstate.h
+messages.cc
+messages.h
+table.cc
+table.h

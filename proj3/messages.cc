@@ -4,31 +4,37 @@ RoutingMessage::RoutingMessage()
 {}
 
 RoutingMessage::RoutingMessage(const RoutingMessage &rhs) {
-    *this = rhs;
+	*this = rhs;
 }
 
 RoutingMessage & RoutingMessage::operator=(const RoutingMessage & rhs) {
-    /* For now.  Change if you add data members to the struct */
-    return *this;
+	/* For now.  Change if you add data members to the struct */
+	return *this;
 }
 
 #if defined(GENERIC)
 ostream &RoutingMessage::Print(ostream &os) const
 {
-    os << "Generic RoutingMessage()";
-    return os;
+	os << "Generic RoutingMessage()";
+	return os;
 }
 #endif
 
 #if defined(LINKSTATE)
 ostream &RoutingMessage::Print(ostream &os) const
 {
-    os << "LinkState RoutingMessage()";
-    return os;
+	os << "LinkState RoutingMessage()";
+	return os;
 }
 #endif
 
 #if defined(DISTANCEVECTOR)
+RoutingMessage::RoutingMessage(int s, map <int, TopoLink> v)
+{
+    src = s; 
+	vects = v;
+}
+
 ostream &RoutingMessage::Print(ostream &os) const
 {
     os << "DistanceVector RoutingMessage()";

@@ -3,6 +3,8 @@
 
 #include <iostream>
 #include <map>
+#include <deque>
+#include "link.h"
 
 using namespace std;
 
@@ -27,20 +29,21 @@ struct TopoLink {
 // Students should write this class
 class Table {
     private:
-        map < int, map < int, TopoLink > > topo;
     public:
         Table();
         Table(const Table &);
         Table & operator=(const Table &);
-
+		map < int, map < int, TopoLink > > topo;
         ostream & Print(ostream &os) const;
 
         // Anything else you need
-
         #if defined(LINKSTATE)
         #endif
 
         #if defined(DISTANCEVECTOR)
+        map <int, TopoLink> distance;
+        map <int, TopoLink> neighbors;
+        map <int, int> hop_map;
         #endif
 };
 

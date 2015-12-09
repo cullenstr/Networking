@@ -6,6 +6,7 @@
 class LinkState: public Node {
     private:
         // Anything you need in addition to Node members
+        
 
     public:
         LinkState(unsigned, SimulationContext* , double, double);
@@ -20,8 +21,11 @@ class LinkState: public Node {
         Node* GetNextHop(Node* destination);
         Table* GetRoutingTable();
         ostream & Print(ostream & os) const;
+       
 
         // Anything else
+        int RecursiveBuild(int, int, TopoLink);
+        void Initialize();
 };
 
 inline ostream & operator<<(ostream & os, const LinkState & n) {

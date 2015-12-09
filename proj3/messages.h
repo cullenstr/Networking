@@ -16,6 +16,10 @@ struct RoutingMessage {
 
     // Anything else you need
     #if defined(LINKSTATE)
+    RoutingMessage(int src, double seq, map <int, pair< int, TopoLink> > p);
+	map <int, pair< int, TopoLink> > paths;
+	int source;
+	double seq_num;
     #endif
 	
 	#if defined(DISTANCEVECTOR)

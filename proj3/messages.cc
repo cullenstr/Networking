@@ -21,9 +21,17 @@ ostream &RoutingMessage::Print(ostream &os) const
 #endif
 
 #if defined(LINKSTATE)
+RoutingMessage::RoutingMessage(int src, double seq, map<int, pair<int, TopoLink> > p)
+{
+	paths = p;
+	src = src;
+	seq_num = seq;
+}
+
+
 ostream &RoutingMessage::Print(ostream &os) const
 {
-	os << "LinkState RoutingMessage()";
+	os << "LinkState RoutingMessage()\n";
 	return os;
 }
 #endif

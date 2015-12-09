@@ -38,6 +38,12 @@ class Table {
 
         // Anything else you need
         #if defined(LINKSTATE)
+        typedef pair<int, TopoLink> src_pair;
+        map <int, double> ls_records;  //record src, seq# of recieved messages
+        map <int, map <int, TopoLink > > unused; //record nodes not in N': src, <dest, link>
+        map <int, src_pair > next_hop; //record next hop and cost as follows : dest, <src, total cost>
+        bool initialized;
+		int seq_num;
         #endif
 
         #if defined(DISTANCEVECTOR)

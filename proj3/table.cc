@@ -11,7 +11,15 @@ Table::Table(const Table & rhs) {
 Table & Table::operator=(const Table & rhs) {
     /* For now,  Change if you add more data members to the class */
     topo = rhs.topo;
-
+	#if defined(LINKSTATE)
+	ls_records = rhs.ls_records; 
+    unused = rhs.unused; 
+    next_hop = rhs.next_hop;
+    initialized = rhs.initialized;
+    seq_num = rhs.seq_num;
+    seq_num = 0;
+    initialized = false;
+	#endif
     return *this;
 }
 
@@ -26,7 +34,15 @@ ostream & Table::Print(ostream &os) const
 #if defined(LINKSTATE)
 ostream & Table::Print(ostream &os) const
 {
-  os << "LinkState Table()";
+  os << "\n\n*********** Linkstate Table **********";
+  os << "\n==== Destination\t:\tNext Hop\t:\tDistance ====\n";
+  map <int, pair<int, TopoLink> >::const_iterator iter;
+  for(iter=this->next_hop.begin(); iter!=this->next_hop.end(); iter++)
+  {
+	  if(iter->second.second.cost!=-1) //if a valid link
+		os << "\t" << iter->first << "\t\t:\t" << iter->second.first << "\t\t:\t" << "D(" << iter->first << ")=" << iter->second.second.cost << "\t\n";
+  }
+  os << "\n\n*********** End Linkstate Table **********";
   return os;
 }
 #endif

@@ -18,6 +18,5 @@ The distance vector algorithm and the associated table printing was implemented 
 and the link state algorithm  along with its table printing was done by Lauren. 
 
 Distance vector uses the current link info to calculate the least cost path and gets the next hop for each node destination.
-Link state computes least cost paths from one node (‘source”) to all other nodes using Dijkstras.
-(Link State not currently working)
 
+For the Link state algorithm, separate data structures were used to hold nodes from which messages had been recieved but not added to the topology, a record of recieved messages to better implement message flooding and a structure to hold the next hop and total cost from one node to any other node, in order to make the code for printing and other data retrieval operations simpler.  We ran out of time debugging the Link State algorithm; while the code runs, the recursive part of the hext hop table updating function had to be disabled to stop it from segfaulting.  Unfortunately, this means that the table isn't being updated correctly.  But we're confident in the logic behind the code.

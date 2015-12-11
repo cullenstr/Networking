@@ -39,7 +39,7 @@ ostream & Table::Print(ostream &os) const
   map <int, pair<int, TopoLink> >::const_iterator iter;
   for(iter=this->next_hop.begin(); iter!=this->next_hop.end(); iter++)
   {
-	  if(iter->second.second.cost!=-1) //if a valid link
+	  //if(iter->second.second.cost!=-1) //if a valid link
 		os << "\t" << iter->first << "\t\t:\t" << iter->second.first << "\t\t:\t" << "D(" << iter->first << ")=" << iter->second.second.cost << "\t\n";
   }
   os << "*********** End Linkstate Table **********";

@@ -13,3 +13,11 @@ messages.cc
 messages.h
 table.cc
 table.h
+
+The distance vector algorithm and the associated table printing was implemented by Cullen, 
+and the link state algorithm  along with its table printing was done by Lauren. 
+
+Distance vector uses the current link info to calculate the least cost path and gets the next hop for each node destination.
+Link state computes least cost paths from one node (‘source”) to all other nodes using Dijkstras.
+(Link State not currently working)
+

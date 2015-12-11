@@ -22,7 +22,7 @@ LinkState::~LinkState() {}
 void LinkState::LinkHasBeenUpdated(Link* l) {
    if( routing_table.initialized == false )
 		Initialize();
-	cerr << *this << ": Link Update: " << *l << endl;
+	cerr << (*this).GetNumber() << ": Link Update: " << *l << endl;
 	//find cost change
 	int cost_diff = 0;
 	int dest = (*l).GetDest();
@@ -32,9 +32,10 @@ void LinkState::LinkHasBeenUpdated(Link* l) {
 	cost_diff = routing_table.topo[src][dest].cost - latency;
 	routing_table.topo[src][dest].cost = latency;
 	//update all costs in next hop based on change -> iterate down next_hop, changing totoal costs
-	map<int, pair<int, TopoLink> >::const_iterator hop_it;
-	for(routing_table.next_hop.begin(); hop_it!=routing_table.next_hop.end(); hop_it++)
+	map<int, pair<int, TopoLink> >::const_iterator hop_it = routing_table.next_hop.begin();
+	for(hop_it; hop_it!=routing_table.next_hop.end(); hop_it++)
 	{
+		cerr << "in_loop";
 		pair<int, TopoLink> hop_pair = hop_it->second;
 		//if is a valid entry and if goes through the changed link, update cost
 		if( hop_pair.second.cost!=-1 && hop_pair.first==dest )
@@ -52,7 +53,7 @@ void LinkState::LinkHasBeenUpdated(Link* l) {
 
 
 void LinkState::ProcessIncomingRoutingMessage(RoutingMessage *m) {
-    cerr << *this << " got a routing message: " << *m << endl;
+    //cerr << (*this).GetNumber() << " got a routing message: " << *m << endl;
 	if( routing_table.initialized == false )
 		Initialize();
 	
@@ -63,8 +64,9 @@ void LinkState::ProcessIncomingRoutingMessage(RoutingMessage *m) {
 	map <int, pair<int, TopoLink> >::const_iterator paths_it;
 	map <int, map< int, TopoLink> >::const_iterator unused_it;
 	//check if this is a relevant message: is the seq_num higher than our last recorded entry?
-	if( routing_table.ls_records[msg_source] < seq_num) //pretty sure the value will be initialized to 0 if this is the first msg
+	if( (unsigned int)msg_source!=(*this).GetNumber() && routing_table.ls_records[msg_source] < seq_num) //pretty sure the value will be initialized to 0 if this is the first msg
 	{
+		cerr << (*this).GetNumber() << " got a routing message: " << *m << endl;
 		//first flood to neighbors
 		SendToNeighbors(m);
 		//update our records
@@ -118,6 +120,7 @@ void LinkState::ProcessIncomingRoutingMessage(RoutingMessage *m) {
 			}
 		}
 		if(altered) {
+			cerr << "Link altered : see new routing table ";
 			//update next_hop table
 			map<int, map<int, TopoLink> >::const_iterator node_row = routing_table.topo.find((*this).GetNumber());
 			map<int, TopoLink>::const_iterator child_it;
@@ -128,6 +131,7 @@ void LinkState::ProcessIncomingRoutingMessage(RoutingMessage *m) {
 			}
 			//send updated advertisement
 			routing_table.seq_num++;
+			cerr << *this;
 			SendToNeighbors(new RoutingMessage((*this).GetNumber(), routing_table.seq_num, routing_table.next_hop));
 		}
 	}

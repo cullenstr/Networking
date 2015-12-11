@@ -34,7 +34,7 @@ ostream & Table::Print(ostream &os) const
 #if defined(LINKSTATE)
 ostream & Table::Print(ostream &os) const
 {
-  os << "\n\n*********** Linkstate Table **********";
+  os << "\n\n*********** Linkstate Table:**********";
   os << "\n==== Destination\t:\tNext Hop\t:\tDistance ====\n";
   map <int, pair<int, TopoLink> >::const_iterator iter;
   for(iter=this->next_hop.begin(); iter!=this->next_hop.end(); iter++)
@@ -42,7 +42,7 @@ ostream & Table::Print(ostream &os) const
 	  if(iter->second.second.cost!=-1) //if a valid link
 		os << "\t" << iter->first << "\t\t:\t" << iter->second.first << "\t\t:\t" << "D(" << iter->first << ")=" << iter->second.second.cost << "\t\n";
   }
-  os << "\n\n*********** End Linkstate Table **********";
+  os << "*********** End Linkstate Table **********";
   return os;
 }
 #endif

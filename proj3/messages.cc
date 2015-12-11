@@ -24,7 +24,7 @@ ostream &RoutingMessage::Print(ostream &os) const
 RoutingMessage::RoutingMessage(int src, double seq, map<int, pair<int, TopoLink> > p)
 {
 	paths = p;
-	src = src;
+	source  = src;
 	seq_num = seq;
 }
 
@@ -32,6 +32,13 @@ RoutingMessage::RoutingMessage(int src, double seq, map<int, pair<int, TopoLink>
 ostream &RoutingMessage::Print(ostream &os) const
 {
 	os << "LinkState RoutingMessage()\n";
+	os << "Source: " << source << " Sequence Number: " << seq_num;
+	map <int, pair<int, TopoLink> >::const_iterator iter;
+	for(iter=this->paths.begin(); iter!=this->paths.end(); iter++)
+	{
+		if(iter->second.second.cost!=-1) //if a valid link
+		os << "\ndestination: " << iter->first << " cost: " << iter->second.second.cost;
+	}
 	return os;
 }
 #endif
